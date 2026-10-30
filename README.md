@@ -16,6 +16,8 @@ npm run dev
 
 Open [http://127.0.0.1:4319](http://127.0.0.1:4319). The default mode is rehearsal and works without payment credentials. Choose Kasia for the organizer or a buyer such as Maja. Use independent browser profiles or different browsers when reviewing multiple people; ordinary tabs share one login. The product UI defaults to English, as do the README and submission materials.
 
+For complete Windows/macOS/Linux setup, a short no-key review, the compiled build, and separate live-provider configuration, see [judge setup and access](docs/judge-access.md). The no-key rehearsal is free to run; private live-integration judging access is tracked separately and is not implied by optional own-account instructions.
+
 | Mode | Payments | AI |
 | --- | --- | --- |
 | `APP_MODE=rehearsal` | Clearly labeled local simulations; no PayPal requests. Scenario controls support reviewing success, an unknown result, recovery and a changed plan. | Real Nebius calls when configured; provider errors stay errors. Without a provider, explicitly labeled sample proposals are used; they do not parse the supplied photo/text. |
