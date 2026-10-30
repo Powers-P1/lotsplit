@@ -1,0 +1,154 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { createServer } from 'node:net';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
+import { setTimeout as delay } from 'node:timers/promises';
+
+const require = createRequire(import.meta.url);
+const serverPath = fileURLToPath(new URL('./index.ts', import.meta.url));
+const basic = `Basic ${Buffer.from('jury:hosting-test-password').toString('base64')}`;
+
+async function stop(child: ChildProcess) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>(done => child.once('exit', () => done()));
+  child.kill();
+  await Promise.race([exited, delay(3000)]);
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGKILL');
+    await exited;
+  }
+}
+
+async function isolatedServer(overrides: Record<string, string> = {}) {
+  const directory = await mkdtemp(join(tmpdir(), 'lotsplit-hosting-safety-'));
+  let child: ChildProcess | undefined;
+  async function dispose() {
+    if (child) await stop(child);
+    // Only the exact temporary directory created by this test may be removed.
+    assert.equal(dirname(resolve(directory)), resolve(tmpdir()));
+    assert.ok(basename(directory).startsWith('lotsplit-hosting-safety-'));
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+  try {
+    await mkdir(join(directory, 'dist', 'client'), { recursive: true });
+    await writeFile(join(directory, 'dist', 'client', 'index.html'), '<!doctype html><title>Private test build</title>');
+    const reservation = createServer();
+    await new Promise<void>((done, fail) => { reservation.once('error', fail); reservation.listen(0, '127.0.0.1', done); });
+    const address = reservation.address();
+    assert.ok(address && typeof address !== 'string');
+    const port = address.port;
+    await new Promise<void>((done, fail) => reservation.close(error => error ? fail(error) : done()));
+    const origin = `http://127.0.0.1:${port}`;
+    child = spawn(process.execPath, ['--import', pathToFileURL(require.resolve('tsx')).href, serverPath], {
+      cwd: directory,
+      env: { ...process.env, NODE_OPTIONS: '', NODE_ENV: 'production', APP_MODE: 'rehearsal',
+        HOST: '127.0.0.1', PORT: String(port), APP_ORIGIN: origin, RENDER_EXTERNAL_URL: '',
+        DATA_DIR: join(directory, 'data'), NEBIUS_ENV_FILE: '', NEBIUS_API_KEY: 'dummy-hosting-test-key',
+        NEBIUS_BASE_URL: 'https://api.tokenfactory.nebius.com/v1', NEBIUS_TEXT_MODEL: '', NEBIUS_MODEL: '', NEBIUS_VISION_MODEL: '',
+        PAYPAL_CLIENT_ID: '', PAYPAL_CLIENT_SECRET: '', PAYPAL_WEBHOOK_ID: '', ORGANIZER_ACCESS_TOKEN: '',
+        SESSION_COOKIE_NAME: 'lotsplit_session', AI_DAILY_REQUEST_LIMIT: '1',
+        JUDGE_ACCESS_USERNAME: '', JUDGE_ACCESS_PASSWORD: '', ...overrides },
+      stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    });
+    let output = '';
+    child.stdout?.on('data', chunk => { output += String(chunk); });
+    child.stderr?.on('data', chunk => { output += String(chunk); });
+    let spawnError: Error | undefined;
+    child.once('error', error => { spawnError = error; });
+    async function ready() {
+      const deadline = Date.now() + 15000;
+      while (Date.now() < deadline) {
+        if (spawnError) throw spawnError;
+        if (child!.exitCode !== null || child!.signalCode !== null) throw new Error(`Isolated server exited before readiness: ${output}`);
+        try { if ((await fetch(`${origin}/api/health`)).ok) return; } catch { /* Startup is still in progress. */ }
+        await delay(50);
+      }
+      throw new Error(`Isolated server did not become ready: ${output}`);
+    }
+    async function exited() {
+      const deadline = Date.now() + 15000;
+      while (Date.now() < deadline && child!.exitCode === null && child!.signalCode === null && !spawnError) await delay(50);
+      if (spawnError) throw spawnError;
+      assert.notEqual(child!.exitCode, null, 'Invalid configuration must terminate without serving requests');
+      assert.notEqual(child!.exitCode, 0);
+      return output;
+    }
+    return { origin, ready, exited, dispose };
+  } catch (error) { await dispose(); throw error; }
+}
+
+test('private judging gate covers pages, assets and API while health reveals no provider metadata', async () => {
+  const server = await isolatedServer({ JUDGE_ACCESS_USERNAME: 'jury', JUDGE_ACCESS_PASSWORD: 'hosting-test-password' });
+  try {
+    await server.ready();
+    const health = await fetch(`${server.origin}/api/health`);
+    assert.deepEqual(await health.json(), { ok: true });
+    assert.equal((await fetch(`${server.origin}/api/health`, { method: 'HEAD' })).status, 200);
+    for (const path of ['/', '/assets/private.png', '/api/state', '/payment/return?operationId=test']) {
+      const denied = await fetch(`${server.origin}${path}`);
+      assert.equal(denied.status, 401, path);
+      assert.match(denied.headers.get('www-authenticate') || '', /^Basic /);
+      assert.equal(denied.headers.get('cache-control'), 'no-store');
+      assert.equal((await denied.json()).code, 'JUDGE_ACCESS_REQUIRED');
+    }
+    for (const authorization of ['Bearer example', 'Basic !!!', `Basic ${Buffer.from('jury:wrong-password').toString('base64')}`])
+      assert.equal((await fetch(`${server.origin}/api/state`, { headers: { authorization } })).status, 401);
+    assert.equal((await fetch(`${server.origin}/api/health`, { method: 'POST' })).status, 401);
+    const page = await fetch(`${server.origin}/`, { headers: { authorization: basic } });
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /Private test build/);
+    const callback = await fetch(`${server.origin}/payment/return?operationId=test`, { headers: { authorization: basic } });
+    assert.equal(callback.status, 200);
+    const state = await fetch(`${server.origin}/api/state`, { headers: { authorization: basic } });
+    assert.equal(state.status, 200);
+    assert.equal((await state.json()).authenticated, false, 'Basic gate must not grant an application role');
+  } finally { await server.dispose(); }
+});
+
+test('gate is off by default and unauthenticated AI requests cannot exhaust the authenticated allowance', async () => {
+  const server = await isolatedServer();
+  try {
+    await server.ready();
+    const health = await fetch(`${server.origin}/api/health`);
+    assert.equal((await health.json()).mode, 'rehearsal');
+    assert.equal((await fetch(`${server.origin}/`)).status, 200);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await fetch(`${server.origin}/api/ai/preferences`, { method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: 'lotsplit_session=invalid-unrecognized-token' }, body: JSON.stringify({ text: 'A test preference' }) });
+      assert.equal(response.status, 401);
+      assert.equal((await response.json()).code, 'UNAUTHENTICATED');
+    }
+    const login = await fetch(`${server.origin}/api/auth/demo`, { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ inviteToken: 'demo-maja' }) });
+    assert.equal(login.status, 200);
+    const cookie = login.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(cookie);
+    const request = () => fetch(`${server.origin}/api/ai/preferences`, { method: 'POST',
+      headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ text: 'A test preference' }) });
+    const first = await request();
+    assert.equal(first.status, 409);
+    assert.equal((await first.json()).code, 'CATALOG_REQUIRED', 'The first authenticated request must reach the normal application gate without any upstream request');
+    const second = await request();
+    assert.equal(second.status, 429);
+    assert.equal((await second.json()).code, 'AI_RATE_LIMIT');
+  } finally { await server.dispose(); }
+});
+
+test('partial judging credentials and invalid AI limits fail startup', async () => {
+  for (const overrides of [
+    { JUDGE_ACCESS_USERNAME: 'jury' },
+    { JUDGE_ACCESS_PASSWORD: 'hosting-test-password' },
+    { JUDGE_ACCESS_USERNAME: 'bad:user', JUDGE_ACCESS_PASSWORD: 'hosting-test-password' },
+    { AI_DAILY_REQUEST_LIMIT: 'not-a-number' },
+    { AI_DAILY_REQUEST_LIMIT: '0' },
+  ]) {
+    const server = await isolatedServer(overrides);
+    try { assert.match(await server.exited(), /JUDGE_ACCESS_USERNAME|AI_DAILY_REQUEST_LIMIT/); }
+    finally { await server.dispose(); }
+  }
+});

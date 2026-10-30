@@ -2,7 +2,7 @@ import express from 'express';
 import { config, parse } from 'dotenv';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Server } from 'node:http';
 import { createApiRouter } from './routes.js';
 import { LotSplitEngine, type DomainState } from './domain.js';
@@ -27,6 +27,17 @@ const port = Number(process.env.PORT || 4319);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT.');
 const host = process.env.HOST || '127.0.0.1';
 const origin = process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL || `http://127.0.0.1:${port}`;
+const judgeUsername = process.env.JUDGE_ACCESS_USERNAME || '';
+const judgePassword = process.env.JUDGE_ACCESS_PASSWORD || '';
+if (Boolean(judgeUsername) !== Boolean(judgePassword) || judgeUsername.includes(':') ||
+  (judgeUsername && (!judgeUsername.trim() || !judgePassword.trim())))
+  throw new Error('Set both JUDGE_ACCESS_USERNAME and JUDGE_ACCESS_PASSWORD to enable private judging access. The username cannot contain a colon.');
+const privateJudging = Boolean(judgeUsername);
+const expectedJudgeCredentials = createHash('sha256').update(`${judgeUsername}:${judgePassword}`).digest();
+const aiDailyRequestLimit = Number(process.env.AI_DAILY_REQUEST_LIMIT || 100);
+if (!Number.isSafeInteger(aiDailyRequestLimit) || aiDailyRequestLimit < 1)
+  throw new Error('AI_DAILY_REQUEST_LIMIT must be a positive integer.');
+const sessionCookieName = process.env.SESSION_COOKIE_NAME || 'lotsplit_session';
 const dataDirectory = resolve(process.env.DATA_DIR || './data');
 mkdirSync(dataDirectory, { recursive: true });
 const store = new SqliteStore<DomainState>(join(dataDirectory, `lotsplit-${mode}.sqlite`));
@@ -57,19 +68,32 @@ app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   next();
 });
+app.use((req, res, next) => {
+  if (!privateJudging || (req.path === '/api/health' && ['GET', 'HEAD'].includes(req.method))) return next();
+  const authorization = req.headers.authorization;
+  const match = authorization && /^Basic ([A-Za-z0-9+/]+={0,2})$/i.exec(authorization);
+  if (match && timingSafeEqual(createHash('sha256').update(Buffer.from(match[1], 'base64')).digest(), expectedJudgeCredentials)) return next();
+  res.setHeader('WWW-Authenticate', 'Basic realm="LOTSPLIT judging", charset="UTF-8"');
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(401).json({ code: 'JUDGE_ACCESS_REQUIRED', error: 'Use the private judging credentials supplied with the submission.' });
+});
 app.use(express.json({ limit: '12mb' }));
-app.get('/api/health', (_req, res) => res.json({
+app.get('/api/health', (_req, res) => res.json(privateJudging ? { ok: true } : {
   ok: true, application: 'LOTSPLIT', mode,
   providers: { ai: ai.configured, paypalSandbox: mode === 'sandbox' && paypal.configured },
 }));
 store.db.exec('CREATE TABLE IF NOT EXISTS ai_request_limits (window_key TEXT PRIMARY KEY, count INTEGER NOT NULL)');
 app.use('/api/ai', (req, res, next) => {
   if (req.method !== 'POST' || !ai.configured) return next();
+  // Rejected, unauthenticated requests must not consume the shared judging allowance.
+  const sessionToken = req.headers.cookie?.split(';').map(value => value.trim())
+    .find(value => value.startsWith(`${sessionCookieName}=`))?.slice(sessionCookieName.length + 1);
+  if (!sessionToken || !/^[A-Za-z0-9_-]{20,100}$/.test(sessionToken) || !store.sessionUser(sessionToken)) return next();
   const now = new Date();
   const day = now.toISOString().slice(0, 10);
   const minute = Math.floor(now.getTime() / 60000);
   const keys = [
-    { key: `day:${day}`, limit: Number(process.env.AI_DAILY_REQUEST_LIMIT || 100) },
+    { key: `day:${day}`, limit: aiDailyRequestLimit },
     { key: `minute:${req.ip || 'local'}:${minute}`, limit: 6 },
   ];
   store.db.exec('BEGIN IMMEDIATE');
@@ -89,7 +113,7 @@ app.use('/api/ai', (req, res, next) => {
   } catch (error) { store.db.exec('ROLLBACK'); next(error); }
 });
 app.use('/api', createApiRouter(engine, {
-  aiProvider: ai.configured ? ai : undefined, origin, organizerAccessToken, sessionCookieName: process.env.SESSION_COOKIE_NAME,
+  aiProvider: ai.configured ? ai : undefined, origin, organizerAccessToken, sessionCookieName,
 }));
 app.use('/api', (_req, res) => res.status(404).json({ code: 'NOT_FOUND', error: 'This operation was not found.' }));
 
