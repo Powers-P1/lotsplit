@@ -89,7 +89,7 @@ app.use('/api/ai', (req, res, next) => {
   } catch (error) { store.db.exec('ROLLBACK'); next(error); }
 });
 app.use('/api', createApiRouter(engine, {
-  aiProvider: ai.configured ? ai : undefined, origin, organizerAccessToken,
+  aiProvider: ai.configured ? ai : undefined, origin, organizerAccessToken, sessionCookieName: process.env.SESSION_COOKIE_NAME,
 }));
 app.use('/api', (_req, res) => res.status(404).json({ code: 'NOT_FOUND', error: 'This operation was not found.' }));
 

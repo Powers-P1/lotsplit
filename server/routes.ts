@@ -5,16 +5,15 @@ import { DomainError, LotSplitEngine } from './domain.js';
 import type { BuyerId, RehearsalScenario, UserId } from '../shared/types.js';
 import { getDemoDefaults, userForId } from './seed.js';
 
-export interface ApiRouterOptions { aiProvider?: AiProvider; origin?: string; organizerAccessToken?: string }
-const COOKIE = 'lotsplit_session';
+export interface ApiRouterOptions { aiProvider?: AiProvider; origin?: string; organizerAccessToken?: string; sessionCookieName?: string }
 const BUYERS: BuyerId[] = ['maja', 'ola', 'bartek', 'jan', 'ewa'];
 const asyncRoute = (handler: (req: Request, res: Response) => unknown | Promise<unknown>) =>
   (req: Request, res: Response, next: NextFunction) => { Promise.resolve().then(() => handler(req, res)).catch(next); };
 function body(req: Request): Record<string, unknown> { return req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {}; }
 function requiredString(value: unknown, field: string, maximum = 6000): string { if (typeof value !== 'string' || !value.trim() || value.length > maximum) throw new DomainError('INVALID_FIELD', 'Complete the required field.', 400, { [field]: 'Check this field.' }); return value; }
 function buyerId(value: unknown): BuyerId { if (!BUYERS.includes(value as BuyerId)) throw new DomainError('INVALID_BUYER', 'Participant not found.', 404); return value as BuyerId; }
-function cookieToken(req: Request): string | undefined {
-  const value = req.headers.cookie?.split(';').map(c => c.trim()).find(c => c.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
+function cookieToken(req: Request, name: string): string | undefined {
+  const value = req.headers.cookie?.split(';').map(c => c.trim()).find(c => c.startsWith(`${name}=`))?.slice(name.length + 1);
   return value && /^[A-Za-z0-9_-]{20,100}$/.test(value) ? value : undefined;
 }
 function equalSecret(actual: string, expected: string) { return actual.length === expected.length && timingSafeEqual(Buffer.from(actual), Buffer.from(expected)); }
@@ -22,11 +21,13 @@ function equalSecret(actual: string, expected: string) { return actual.length ==
 /** Mount at /api. All roles and financial terms come from the server-side session. */
 export function createApiRouter(engine: LotSplitEngine, options: ApiRouterOptions = {}) {
   const router = Router(); const origin = options.origin ? new URL(options.origin).origin : undefined;
-  const session = (req: Request): UserId | undefined => engine.store.sessionUser(cookieToken(req));
+  const cookie = options.sessionCookieName ?? 'lotsplit_session';
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(cookie)) throw new Error('Invalid session cookie name.');
+  const session = (req: Request): UserId | undefined => engine.store.sessionUser(cookieToken(req, cookie));
   const authenticated = (req: Request): UserId => { const id = session(req); if (!id) throw new DomainError('UNAUTHENTICATED', 'Use your invitation to access your collection.', 401); return id; };
   const organizer = (req: Request) => { const id = authenticated(req); if (id !== 'kasia') throw new DomainError('FORBIDDEN', 'This action is available to the organizer.', 403); return id; };
   const result = (req: Request, res: Response, extra: object = {}) => res.json({ state: engine.view(session(req)), ...extra });
-  const setSession = (res: Response, id: UserId) => res.cookie(COOKIE, engine.store.createSession(id), { httpOnly: true,
+  const setSession = (res: Response, id: UserId) => res.cookie(cookie, engine.store.createSession(id), { httpOnly: true,
     sameSite: 'lax', secure: origin?.startsWith('https:') ?? false, path: '/', maxAge: 7 * 86400000 });
   router.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -67,7 +68,7 @@ export function createApiRouter(engine: LotSplitEngine, options: ApiRouterOption
     if (!id) throw new DomainError('EXPIRED_LINK', 'This link is invalid, already used, or expired.', 401);
     setSession(res, id); res.redirect('/');
   }));
-  router.post('/auth/logout', (req, res) => { engine.store.deleteSession(cookieToken(req)); res.clearCookie(COOKIE, { path: '/' }); res.json({ state: engine.view() }); });
+  router.post('/auth/logout', (req, res) => { engine.store.deleteSession(cookieToken(req, cookie)); res.clearCookie(cookie, { path: '/' }); res.json({ state: engine.view() }); });
 
   router.patch('/collection', asyncRoute(async (req, res) => { engine.updateCollection(organizer(req), body(req)); await engine.processPendingCompensation(); result(req, res); }));
   router.patch('/items/:id', asyncRoute(async (req, res) => { engine.updateItem(organizer(req), String(req.params.id), body(req)); await engine.processPendingCompensation(); result(req, res); }));

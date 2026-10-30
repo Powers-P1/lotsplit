@@ -2,15 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import express from 'express';
-import { createApiRouter } from './routes.js';
+import { createApiRouter, type ApiRouterOptions } from './routes.js';
 import { LotSplitEngine, type DomainState } from './domain.js';
 import { SqliteStore } from './store.js';
 import type { AppMode, ApiError, ApiResult } from '../shared/types.js';
 
-async function withApi(mode: AppMode, run: (engine: LotSplitEngine, post: Post) => Promise<void>) {
+async function withApi(mode: AppMode, run: (engine: LotSplitEngine, post: Post) => Promise<void>, options: ApiRouterOptions = {}) {
   const store = new SqliteStore<DomainState>(':memory:');
   const engine = new LotSplitEngine(store, { mode, now: () => new Date('2026-10-30T12:00:00Z') });
-  const app = express(); app.use(express.json()); app.use('/api', createApiRouter(engine));
+  const app = express(); app.use(express.json()); app.use('/api', createApiRouter(engine, options));
   const server = app.listen(0, '127.0.0.1');
   try {
     await once(server, 'listening'); const address = server.address();
@@ -29,6 +29,27 @@ async function withApi(mode: AppMode, run: (engine: LotSplitEngine, post: Post) 
 }
 type DemoApiResponse = ApiResult & ApiError & { source?: string; proposal?: { maxTotalCents: number; preferredIds: string[]; alternativeIds: string[] } };
 type Post = (path: string, body: unknown, cookie?: string) => Promise<{ status: number; cookie: string | null; body: DemoApiResponse }>;
+
+test('a configured instance cookie isolates login, authenticated actions and logout from other local runtimes', async () => {
+  await withApi('rehearsal', async (engine, post) => {
+    const signedIn = await post('/auth/demo', { inviteToken: 'demo-kasia' });
+    const ownCookie = signedIn.cookie?.split(';')[0];
+    assert.ok(ownCookie?.startsWith('lotsplit_recording='));
+    assert.match(signedIn.cookie!, /HttpOnly/i); assert.match(signedIn.cookie!, /SameSite=Lax/i);
+    const ownToken = ownCookie.split('=')[1];
+    const otherToken = engine.store.createSession('ola');
+    const foreignName = await post('/plan/solve', {}, `lotsplit_session=${ownToken}`);
+    assert.equal(foreignName.status, 401);
+    const ownAction = await post('/rehearsal/scenario', { scenario: 'collecting' }, `lotsplit_session=${otherToken}; ${ownCookie}`);
+    assert.equal(ownAction.status, 200);
+    assert.ok(ownAction.body.state?.authenticated && ownAction.body.state.me.id === 'kasia');
+    const logout = await post('/auth/logout', {}, `lotsplit_session=${otherToken}; ${ownCookie}`);
+    assert.match(logout.cookie!, /^lotsplit_recording=;/);
+    assert.equal(engine.store.sessionUser(ownToken), undefined);
+    assert.equal(engine.store.sessionUser(otherToken), 'ola');
+    assert.equal((await post('/plan/solve', {}, ownCookie)).status, 401);
+  }, { sessionCookieName: 'lotsplit_recording' });
+});
 
 test('demo entry selects and resets a collection only for Kasia; persona login keeps the existing state', async () => {
   await withApi('rehearsal', async (engine, post) => {
