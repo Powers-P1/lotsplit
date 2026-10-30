@@ -6,7 +6,7 @@ import type {
 } from '../shared/types.js';
 import { createCollection, createParticipants, DEMO_ACCESS, getDemoDefaults, sourceForMode, userForId } from './seed.js';
 import { DEFAULT_DEMO_COLLECTION_ID, isDemoCollectionId, type DemoCollectionId } from '../shared/demo-collections.js';
-import type { CreateOrderInput, PaymentProvider, ProviderResult } from './paypal.js';
+import { PayPalProviderError, type CreateOrderInput, type PaymentProvider, type ProviderResult } from './paypal.js';
 import { SqliteStore } from './store.js';
 
 export class DomainError extends Error {
@@ -77,6 +77,15 @@ const isFinal = (op: PaymentOperation | undefined) => !!op && ['COMPLETED', 'AUT
 const consentValid = (plan: AllocationPlan, assignment: Assignment) => plan.consents[assignment.buyerId]?.termsDigest === assignment.termsDigest;
 const sorted = (ids: string[]) => [...ids].sort();
 const clone = <T>(value: T): T => structuredClone(value);
+function providerErrorInfo(error: unknown): PaymentOperation['providerError'] {
+  if (!(error instanceof PayPalProviderError)) return undefined;
+  const safeCode = (value: string) => /^[A-Z0-9_]{1,80}$/.test(value);
+  return {
+    code: error.issues.find(safeCode) ?? (safeCode(error.code) ? error.code : 'PAYPAL_ERROR'),
+    ...(Number.isInteger(error.httpStatus) && error.httpStatus! >= 100 && error.httpStatus! <= 599 ? { httpStatus: error.httpStatus } : {}),
+    ...(error.debugId && /^[A-Za-z0-9-]{1,128}$/.test(error.debugId) ? { debugId: error.debugId } : {}),
+  };
+}
 
 /** The digest deliberately excludes version and the identities of the other buyers. */
 export function termsDigest(collection: Collection, buyerId: BuyerId, itemIds: string[], totalCents: number): string {
@@ -528,9 +537,12 @@ export class LotSplitEngine {
       this.mutate(state => {
         const op = state.operations[operation.id]; if (!op || isFinal(op)) return;
         // A rejected recovery request says nothing about whether the original request succeeded.
+        const awaitingApproval = op.kind === 'authorize' && error instanceof PayPalProviderError && error.code === 'ORDER_NOT_APPROVED';
         const uncertain = recovering || ((error as { uncertain?: boolean }).uncertain !== false && !(error instanceof DomainError));
-        op.status = uncertain ? 'UNKNOWN' : 'FAILED'; op.checkNeeded = uncertain; op.updatedAt = this.time();
-        op.lastError = uncertain ? 'We are checking the saved operation result. The charge will not be repeated.' : 'The provider did not confirm the operation. Check the configuration or try again after it is resolved.';
+        op.status = awaitingApproval ? 'PENDING' : uncertain ? 'UNKNOWN' : 'FAILED'; op.checkNeeded = awaitingApproval || uncertain; op.updatedAt = this.time();
+        op.lastError = awaitingApproval ? 'PayPal has not confirmed approval yet. Check the existing authorization before continuing.'
+          : uncertain ? 'We are checking the saved operation result. The charge will not be repeated.' : 'The provider did not confirm the operation. Check the configuration or try again after it is resolved.';
+        op.providerError = providerErrorInfo(error);
       });
     } finally {
       this.mutate(state => { const command = state.paymentCommands?.[operation.id]; if (command?.leaseToken === leaseToken) { delete command.leaseToken; delete command.leaseExpiresAt; } });
@@ -568,7 +580,7 @@ export class LotSplitEngine {
       }
       operation.status = result.status; operation.providerId = result.providerId || operation.providerId;
       operation.approvalUrl = result.approvalUrl ?? operation.approvalUrl; operation.updatedAt = this.time();
-      operation.checkNeeded = ['UNKNOWN', 'PENDING'].includes(result.status); operation.lastError = undefined;
+      operation.checkNeeded = ['UNKNOWN', 'PENDING'].includes(result.status); operation.lastError = undefined; operation.providerError = undefined;
       if (operation.kind === 'authorize' && result.expiresAt) operation.expiresAt = result.expiresAt;
     });
   }
@@ -595,6 +607,9 @@ export class LotSplitEngine {
       if (!order || order.kind !== 'order' || order.buyerId !== buyerId) throw new DomainError('NOT_FOUND', 'Your operation was not found.', 404);
       const plan = this.requireCurrent(state, order.planId); const payment = this.payment(state, plan, buyerId);
       if (payment.authorization && !['FAILED', 'CANCELLED'].includes(payment.authorization.status)) return { operation: clone(payment.authorization), existing: true };
+      // A repeated browser callback must never mint a replacement authorization command.
+      if (payment.authorization?.status === 'FAILED' && payment.authorization.parentProviderId === order.providerId)
+        return { operation: clone(payment.authorization), existing: true };
       this.requireGate(this.gates(state, buyerId).authorize);
       if (!['CREATED', 'APPROVED'].includes(order.status) || !order.providerId) throw new DomainError('ORDER_NOT_READY', 'We are checking the status of the existing operation.', 409);
       if (outcome === 'decline' && state.mode !== 'rehearsal') throw new DomainError('REHEARSAL_ONLY', 'This control is available only in the demo rehearsal.', 403);
@@ -705,6 +720,28 @@ export class LotSplitEngine {
     await this.dispatch(operation);
     return { operationId: operation.id };
   }
+  /** Explicit buyer action only: read PayPal first, then reuse the original saved command if needed. */
+  async retryAuthorization(userId: UserId, operationId: string) {
+    const buyerId = this.buyer(userId);
+    const operation = this.mutate(state => {
+      const failed = state.operations[operationId];
+      if (!failed || failed.kind !== 'authorize' || failed.buyerId !== buyerId || failed.status !== 'FAILED')
+        throw new DomainError('RETRY_NOT_ALLOWED', 'Choose your existing failed authorization. An unknown result must be checked first.', 409);
+      const plan = this.requireCurrent(state, failed.planId); const payment = this.payment(state, plan, buyerId);
+      if (payment.authorization?.id !== failed.id || !payment.order?.providerId || failed.parentProviderId !== payment.order.providerId)
+        throw new DomainError('STALE_OPERATION', 'This authorization no longer belongs to your current order.', 409);
+      this.requireGate(this.gates(state, buyerId).authorize);
+      const saved = state.paymentCommands?.[failed.id]?.command;
+      if (!saved || saved.kind !== 'authorize' || saved.providerId !== failed.parentProviderId || saved.idempotencyKey !== failed.idempotencyKey)
+        throw new DomainError('RETRY_NOT_ALLOWED', 'The original authorization command is unavailable. Manual reconciliation is required.', 409);
+      failed.status = 'UNKNOWN'; failed.checkNeeded = true; failed.updatedAt = this.time();
+      failed.lastError = 'We are checking the existing PayPal authorization before retrying its saved command.';
+      return clone(failed);
+    });
+    await this.reconcileOperation(operation.id);
+    await this.compensateInvalidPlans();
+    return { operationId: operation.id };
+  }
   private async reconcileOperation(operationId: string) {
     const state = this.snapshot(); const operation = state.operations[operationId]; if (!operation || isFinal(operation)) return;
     this.mutate(s => { s.operations[operationId].reconcileAttempts++; s.operations[operationId].updatedAt = this.time(); });
@@ -721,6 +758,8 @@ export class LotSplitEngine {
           if (operation.providerId) result = await provider.getAuthorization(operation.providerId);
           else if (operation.parentProviderId) {
             const order = await provider.getOrder(operation.parentProviderId);
+            if (order.amountCents !== operation.amountCents || order.currency !== operation.currency)
+              throw new PayPalProviderError('PAYPAL_AMOUNT_MISMATCH', 'The existing order does not match the saved authorization amount.', true);
             if (!order.authorizationId) { await this.dispatch(operation, true); return; }
             result = await provider.getAuthorization(order.authorizationId);
           } else { await this.dispatch(operation, true); return; }
@@ -742,8 +781,8 @@ export class LotSplitEngine {
         }
       }
       this.applyResult(operationId, result);
-    } catch {
-      this.mutate(s => { const op = s.operations[operationId]; if (!isFinal(op)) { op.status = 'UNKNOWN'; op.checkNeeded = true; op.lastError = 'We are still checking the result of the existing operation.'; } });
+    } catch (error) {
+      this.mutate(s => { const op = s.operations[operationId]; if (!isFinal(op)) { op.status = 'UNKNOWN'; op.checkNeeded = true; op.lastError = 'We are still checking the result of the existing operation.'; op.providerError = providerErrorInfo(error); } });
     }
   }
   /** Called only after the route verifies the PayPal signature. A duplicate event has no new effect. */

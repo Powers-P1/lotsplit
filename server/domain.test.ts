@@ -8,7 +8,7 @@ import { SqliteStore } from './store.js';
 import { createCollection, DEMO_DEFAULTS, getDemoDefaults } from './seed.js';
 import { DEMO_COLLECTIONS } from '../shared/demo-collections.js';
 import type { BuyerId, Collection, Participant, RehearsalScenario } from '../shared/types.js';
-import type { CreateOrderInput, PaymentProvider, ProviderResult } from './paypal.js';
+import { PayPalProviderError, type CreateOrderInput, type PaymentProvider, type ProviderResult } from './paypal.js';
 
 const NOW = '2026-10-30T12:00:00.000Z';
 function fixture(path = ':memory:', now: () => Date = () => new Date(NOW)) {
@@ -48,6 +48,134 @@ function seedSandboxReady(engine: LotSplitEngine, expiresAt?: string) {
   const lastRevision = prepared.revision; prepared.revision++; engine.store.save(prepared, lastRevision);
   return plan.id;
 }
+function sandboxAwaitingMaja(provider: PaymentProvider, now: () => Date = () => new Date(NOW)) {
+  const store = new SqliteStore<DomainState>(':memory:');
+  const engine = new LotSplitEngine(store, { mode: 'sandbox', now, paymentProvider: provider });
+  const planId = seedSandboxReady(engine); const state = engine.snapshot();
+  delete state.plans.find(plan => plan.id === planId)!.payments.maja;
+  const revision = state.revision; state.revision++; store.save(state, revision);
+  return { store, engine, planId };
+}
+
+test('an unconfirmed approval read stays pending and an explicit check reuses the authorization command', async () => {
+  const keys: string[] = []; const reads: string[] = [];
+  const provider = providerStub({
+    async createOrder() { return { providerId: 'PENDING-ORDER', status: 'CREATED', amountCents: 18000, currency: 'PLN' }; },
+    async authorizeOrder(orderId, key) {
+      keys.push(key); assert.equal(orderId, 'PENDING-ORDER');
+      if (keys.length === 1) throw new PayPalProviderError('ORDER_NOT_APPROVED', 'Approval not yet visible', false, 200, 'approval-debug');
+      return { providerId: 'AUTH-AFTER-APPROVAL', status: 'AUTHORIZED', amountCents: 18000, currency: 'PLN' };
+    },
+    async getOrder(id) { reads.push(id); return { providerId: id, status: 'APPROVED', amountCents: 18000, currency: 'PLN' }; },
+  });
+  const { store, engine, planId } = sandboxAwaitingMaja(provider);
+  try {
+    const order = await engine.authorize('maja', planId); const authorization = await engine.approve('maja', order.operationId);
+    let op = engine.snapshot().operations[authorization.operationId];
+    assert.equal(op.status, 'PENDING'); assert.equal(op.providerId, undefined); assert.equal(op.checkNeeded, true);
+    assert.deepEqual(op.providerError, { code: 'ORDER_NOT_APPROVED', httpStatus: 200, debugId: 'approval-debug' });
+    await engine.approve('maja', order.operationId); assert.equal(keys.length, 1, 'a repeated callback cannot retry a financial command');
+    await engine.reconcile('maja', op.id);
+    op = engine.snapshot().operations[op.id]; assert.equal(op.status, 'AUTHORIZED'); assert.equal(op.providerError, undefined);
+    assert.deepEqual(reads, ['PENDING-ORDER']); assert.equal(keys.length, 2); assert.equal(keys[1], keys[0]);
+    assert.equal(planOf(engine).payments.maja!.authorizationOperationId, op.id); assert.equal(engine.view('maja').gates.packing.allowed, false);
+  } finally { store.close(); }
+});
+
+test('manual recovery adopts an existing provider authorization and preserves sanitized failure diagnostics', async () => {
+  let authorizationRequests = 0; let orderRequests = 0; const reads: string[] = [];
+  const provider = providerStub({
+    async createOrder() { orderRequests++; return { providerId: 'APPROVED-ORDER', status: 'CREATED', amountCents: 18000, currency: 'PLN' }; },
+    async authorizeOrder() { authorizationRequests++; throw new PayPalProviderError('UNPROCESSABLE_ENTITY', 'sensitive response must not be stored', false, 422, 'provider-debug', ['INSTRUMENT_DECLINED', 'unsafe raw detail']); },
+    async getOrder(id) { reads.push(`order:${id}`); return { providerId: id, status: 'AUTHORIZED', authorizationId: 'EXISTING-AUTH', amountCents: 18000, currency: 'PLN' }; },
+    async getAuthorization(id) { reads.push(`authorization:${id}`); return { providerId: id, status: 'AUTHORIZED', amountCents: 18000, currency: 'PLN' }; },
+  });
+  const { store, engine, planId } = sandboxAwaitingMaja(provider);
+  try {
+    const order = await engine.authorize('maja', planId); const failed = await engine.approve('maja', order.operationId);
+    assert.deepEqual(engine.snapshot().operations[failed.operationId].providerError, { code: 'INSTRUMENT_DECLINED', httpStatus: 422, debugId: 'provider-debug' });
+    assert.ok(!JSON.stringify(engine.snapshot()).includes('sensitive response')); assert.ok(!JSON.stringify(engine.snapshot()).includes('unsafe raw detail'));
+    const operationCount = Object.keys(engine.snapshot().operations).length;
+    await engine.approve('maja', order.operationId); assert.equal(authorizationRequests, 1);
+    await assert.rejects(engine.retryAuthorization('ola', failed.operationId), hasCode('RETRY_NOT_ALLOWED'));
+    await assert.rejects(engine.retryAuthorization('kasia', failed.operationId), hasCode('FORBIDDEN'));
+    const recovered = await engine.retryAuthorization('maja', failed.operationId);
+    assert.equal(recovered.operationId, failed.operationId); assert.equal(engine.snapshot().operations[failed.operationId].providerId, 'EXISTING-AUTH');
+    assert.equal(Object.keys(engine.snapshot().operations).length, operationCount); assert.equal(authorizationRequests, 1); assert.equal(orderRequests, 1);
+    assert.deepEqual(reads, ['order:APPROVED-ORDER', 'authorization:EXISTING-AUTH']);
+  } finally { store.close(); }
+});
+
+test('manual recovery reads first and concurrent requests reuse only the original authorization key', async () => {
+  const keys: string[] = []; const sequence: string[] = []; let orderRequests = 0;
+  const provider = providerStub({
+    async createOrder() { orderRequests++; return { providerId: 'RETRY-ORDER', status: 'CREATED', amountCents: 18000, currency: 'PLN' }; },
+    async authorizeOrder(id, key) { sequence.push('authorize'); keys.push(key); if (keys.length === 1) throw new PayPalProviderError('TEMPORARY_FAILURE', 'Request rejected', false, 422); return { providerId: 'RETRIED-AUTH', status: 'AUTHORIZED', amountCents: 18000, currency: 'PLN' }; },
+    async getOrder(id) { sequence.push('read'); return { providerId: id, status: 'APPROVED', amountCents: 18000, currency: 'PLN' }; },
+  });
+  const { store, engine, planId } = sandboxAwaitingMaja(provider);
+  try {
+    const order = await engine.authorize('maja', planId); const failed = await engine.approve('maja', order.operationId);
+    const operationCount = Object.keys(engine.snapshot().operations).length;
+    const results = await Promise.allSettled([engine.retryAuthorization('maja', failed.operationId), engine.retryAuthorization('maja', failed.operationId)]);
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+    assert.deepEqual(sequence, ['authorize', 'read', 'authorize']); assert.equal(keys.length, 2); assert.equal(keys[0], keys[1]);
+    assert.equal(orderRequests, 1); assert.equal(Object.keys(engine.snapshot().operations).length, operationCount);
+    assert.equal(engine.snapshot().operations[failed.operationId].status, 'AUTHORIZED');
+  } finally { store.close(); }
+});
+
+test('a failed read during manual recovery remains unknown and records only current safe diagnostics', async () => {
+  let authorizationRequests = 0;
+  const provider = providerStub({
+    async createOrder() { return { providerId: 'READ-FAILURE-ORDER', status: 'CREATED', amountCents: 18000, currency: 'PLN' }; },
+    async authorizeOrder() { authorizationRequests++; throw new PayPalProviderError('FIRST_FAILURE', 'Do not persist', false, 422); },
+    async getOrder() { throw new PayPalProviderError('READ_UNAVAILABLE', 'Do not persist response body', true, 503, 'read-debug'); },
+  });
+  const { store, engine, planId } = sandboxAwaitingMaja(provider);
+  try {
+    const order = await engine.authorize('maja', planId); const failed = await engine.approve('maja', order.operationId);
+    await engine.retryAuthorization('maja', failed.operationId);
+    const op = engine.snapshot().operations[failed.operationId]; assert.equal(op.status, 'UNKNOWN'); assert.equal(authorizationRequests, 1);
+    assert.deepEqual(op.providerError, { code: 'READ_UNAVAILABLE', httpStatus: 503, debugId: 'read-debug' });
+    assert.ok(!JSON.stringify(op).includes('response body')); assert.equal(engine.view('maja').gates.authorize.allowed, false);
+  } finally { store.close(); }
+});
+
+test('manual recovery rejects a mismatched provider order before any authorization replay', async () => {
+  let authorizationRequests = 0;
+  const provider = providerStub({
+    async createOrder() { return { providerId: 'WRONG-AMOUNT-ORDER', status: 'CREATED', amountCents: 18000, currency: 'PLN' }; },
+    async authorizeOrder() { authorizationRequests++; throw new PayPalProviderError('FIRST_FAILURE', 'Request rejected', false, 422); },
+    async getOrder(id) { return { providerId: id, status: 'APPROVED', amountCents: 18001, currency: 'PLN' }; },
+  });
+  const { store, engine, planId } = sandboxAwaitingMaja(provider);
+  try {
+    const order = await engine.authorize('maja', planId); const failed = await engine.approve('maja', order.operationId);
+    await engine.retryAuthorization('maja', failed.operationId);
+    const op = engine.snapshot().operations[failed.operationId]; assert.equal(op.status, 'UNKNOWN'); assert.equal(authorizationRequests, 1);
+    assert.deepEqual(op.providerError, { code: 'PAYPAL_AMOUNT_MISMATCH' }); assert.equal(engine.view('maja').gates.capture.allowed, false);
+  } finally { store.close(); }
+});
+
+test('manual authorization recovery does not replay beyond the saved safe window or after reservation expiry', async () => {
+  for (const hours of [6, 49]) {
+    let clock = new Date(NOW); let authorizationRequests = 0;
+    const provider = providerStub({
+      async createOrder() { return { providerId: 'EXPIRED-RETRY-ORDER', status: 'CREATED', amountCents: 18000, currency: 'PLN' }; },
+      async authorizeOrder() { authorizationRequests++; throw new PayPalProviderError('FIRST_FAILURE', 'Request rejected', false, 422); },
+      async getOrder(id) { return { providerId: id, status: 'APPROVED', amountCents: 18000, currency: 'PLN' }; },
+    });
+    const { store, engine, planId } = sandboxAwaitingMaja(provider, () => clock);
+    try {
+      const order = await engine.authorize('maja', planId); const failed = await engine.approve('maja', order.operationId);
+      clock = new Date(Date.parse(NOW) + hours * 3600000);
+      if (hours === 49) await assert.rejects(engine.retryAuthorization('maja', failed.operationId), hasCode('GATE_CLOSED'));
+      else { await engine.retryAuthorization('maja', failed.operationId); assert.equal(engine.snapshot().operations[failed.operationId].status, 'UNKNOWN'); }
+      assert.equal(authorizationRequests, 1);
+    } finally { store.close(); }
+  }
+});
 
 test('solver covers all 24 items, fixed prices total 840 PLN, and increasing a limit never increases a price', async () => {
   const { engine, store } = fixture();

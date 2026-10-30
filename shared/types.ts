@@ -96,6 +96,7 @@ export interface PaymentOperation {
   createdAt: string;
   updatedAt: string;
   lastError?: string;
+  providerError?: { code: string; httpStatus?: number; debugId?: string };
   checkNeeded: boolean;
   reconcileAttempts: number;
   expiresAt?: string;

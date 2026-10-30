@@ -100,6 +100,9 @@ export function createApiRouter(engine: LotSplitEngine, options: ApiRouterOption
   router.post('/payments/retry-compensation', asyncRoute(async (req, res) => {
     const extra = await engine.retryCompensation(organizer(req), requiredString(body(req).operationId, 'operationId')); result(req, res, extra);
   }));
+  router.post('/payments/retry-authorization', asyncRoute(async (req, res) => {
+    const extra = await engine.retryAuthorization(authenticated(req), requiredString(body(req).operationId, 'operationId')); result(req, res, extra);
+  }));
   router.post('/payments/webhook', asyncRoute(async (req, res) => {
     const provider = engine.options.paymentProvider;
     if (engine.options.mode !== 'sandbox' || !provider?.verifyWebhook || !await provider.verifyWebhook(req.headers, req.body)) throw new DomainError('WEBHOOK_SIGNATURE', 'Invalid event signature.', 401);

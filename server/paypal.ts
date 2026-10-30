@@ -352,9 +352,9 @@ export class PayPalSandboxProvider implements PaymentProvider {
     validId(orderId); paypalRequestId(idempotencyKey);
     // A callback token or PayerID by itself is never evidence of approval.
     const current = await this.getOrder(orderId);
-    if (current.raw?.intent !== 'AUTHORIZE') throw new PayPalProviderError('WRONG_ORDER_INTENT', 'The PayPal order must use AUTHORIZE intent.');
+    if (current.raw?.intent !== 'AUTHORIZE') throw new PayPalProviderError('WRONG_ORDER_INTENT', 'The PayPal order must use AUTHORIZE intent.', false, current.trace?.httpStatus, current.trace?.debugId);
     if (current.authorizationId) return requireExpectedAmount({ ...await this.getAuthorization(current.authorizationId), orderId }, current.amountCents, current.currency);
-    if (current.rawStatus !== 'APPROVED') throw new PayPalProviderError('ORDER_NOT_APPROVED', 'The buyer has not approved this order in PayPal sandbox.');
+    if (current.rawStatus !== 'APPROVED') throw new PayPalProviderError('ORDER_NOT_APPROVED', 'The buyer has not approved this order in PayPal sandbox.', false, current.trace?.httpStatus, current.trace?.debugId);
     const result = await this.request(`/v2/checkout/orders/${orderId}/authorize`, { method: 'POST', body: {}, idempotencyKey });
     const { authorization } = orderPayments(result.body);
     return requireExpectedAmount({ ...paymentResult(authorization, 'authorization', result.trace), orderId }, current.amountCents, current.currency);
