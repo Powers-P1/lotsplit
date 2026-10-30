@@ -1,10 +1,43 @@
 # Verification record — 30 October 2026
 
-The published application source at [`ce58fff`](https://github.com/Powers-P1/lotsplit/commit/ce58fffab1cac39f8012d34bb4cba7f3e0b60430) passed 73 tests, TypeScript and the production build. The later isolated Sandbox UI purchase below reached four completed captures totaling PLN 840. Three buyers had clean returns; Maja required a guarded manual recovery. The public repository and clean-install guide are available. Private free live-provider judge access, public YouTube upload and Devpost submission remain pending.
+Final public application [`93f8570`](https://github.com/Powers-P1/lotsplit/commit/93f857046d8d762e6ac19849e0802066a830e267) passed **83/83 tests, full TypeScript and production build**, plus scoped desktop/mobile UX and solver checks. A **160-second V2.1 technical cut is public**; final submission-film visual approval is pending, with V1 also available as backup. The full PLN 840 purchase proof remains `ce58fff` / 73 tests, with separate later application-void and adapter-refund probes. Three delivery gates remain: final film visual approval/selection, hosted/private judge access and final Devpost submission. The last two remain planned for **11 November 2026**. No host or Render charges exist; no private key-sharing consent or access handoff is implied.
 
-## Published source and later Sandbox UI verification
+## Current source and scoped final quality evidence
 
-Public source: [Powers-P1/lotsplit](https://github.com/Powers-P1/lotsplit). The tested application revision is [`ce58fffab1cac39f8012d34bb4cba7f3e0b60430`](https://github.com/Powers-P1/lotsplit/commit/ce58fffab1cac39f8012d34bb4cba7f3e0b60430). Later documentation-only commits may differ; the source checks and provider evidence here are tied to that application revision. No existing source ZIP was replaced by this documentation update.
+Tested application: [`93f857046d8d762e6ac19849e0802066a830e267`](https://github.com/Powers-P1/lotsplit/commit/93f857046d8d762e6ac19849e0802066a830e267). Later documentation-only commits may differ. Earlier `72e9150`/76 checks and `ce58fff`/73 financial proof remain historical records.
+
+| Check | Actual scope and result |
+| --- | --- |
+| Automated checks | 83/83 passed, zero failed/skipped/cancelled; full typecheck/build passed. Technical validation made zero external provider calls. |
+| Browser UX | Isolated Garage Sale rehearsal passed the organizer/buyer flow through simulated capture/packing, prior-plan resolution and all five reviewed organizer UX fixes on desktop/mobile. Office/workshop received inventory/layout checks, not complete purchases of every set. Owned helpers/fixtures were closed. |
+| Overlap memory fixture | Compiled Node with a 256 MiB heap limit: all four buyers shared six preferences and accepted the other 18. Result: 24 unique items, six each, minimum 18 alternatives overall, PLN 840; 66.66 ms, 121.43 MiB peak RSS. This is one fixture, not a hosted load benchmark. `SOLVER_LIMIT`/409 preserves saved state when work is exhausted. |
+| Application void | An isolated Sandbox app withdrawal invalidated the plan and voided PLN 180. Independent GET confirmed `VOIDED`. Corrected buyer UI showed released status, no stale authorized/pay action and packing blocked. UI regression preserved byte-equivalent app state with no additional provider call. |
+| Adapter-only refund | A separate genuine Sandbox approval and provider-adapter authorize/capture/refund of PLN 1 produced refund GET `COMPLETED` and raw capture GET `REFUNDED`. This does not prove application automatic partial-failure compensation or refund-result UI; the raw provider status, not its generic normalized status, establishes this readback. |
+| Main runtime refresh | Graceful refresh preserved canonical app state, sessions and login links; original Sandbox instances were untouched. Rehearsal payments remain simulated. The refresh made no provider request. |
+
+Additional provider probes used test funds and the existing test payer. They are not another complete four-buyer purchase on the final revision. The complete purchase below retains three clean returns and Maja's manual recovery. No real customers, ROI, escrow or atomic settlement are claimed. End-to-end app refund compensation/UI and live webhook delivery/signature verification remain outside the live proof.
+
+## Current public technical film and publication coverage
+
+Available [**V2.1 technical demo on YouTube**](https://youtu.be/GmxRrGfU5Yo): **160.000 seconds**, **25,204,499 bytes**, SHA-256 `27063c5434a5fcb7a9a19efc74eb871edd09f988a9b160ffef88cdbf449bea3d`. Studio showed publication with Public selected; anonymous official oEmbed confirmed title/channel. Receipt observed **2026-10-30T19:45:17.934Z**. Public [135-second V1](https://youtu.be/_wEAe1O4wjc) remains backup.
+
+Independent V2.1 review passed restored narration lead-ins, ASR/waveform/level checks, delivery metadata and unchanged-picture hashing. It did not claim subjective listening or continuous audiovisual playback. Generated Veo scenes stay visibly illustrative/AI, separate from actual UI/PayPal footage. The Garage Sale AI suggestion remains unapplied and the separate illustration/PLN 840 payment example is introduced explicitly.
+
+The lead verified the existing active Epidemic Pro trial through **8 November**, exact channel safelist `UCpJTOM_Aiaysdgqpl6N8yyA`, and publication during that active period. Coverage is based on those channel-level facts and the publication receipt; no separate per-video certificate is invented or required. No further account operation/new subscription is needed for this handoff. Voice/scene permissions remain separately retained. Official [trial](https://www.epidemicsoundhelp.com/hc/en-us/articles/26246804344978-How-does-the-free-trial-work) and [cancellation](https://www.epidemicsoundhelp.com/hc/en-us/articles/26254650213266-What-happens-to-content-when-a-subscription-is-canceled) guidance was checked **30 October 2026**. The pre-8-November film-publication gate is closed for this video.
+
+## Three remaining material delivery gates
+
+1. **Final submission-film visual approval/selection.** The current public V2.1 is a factual technical cut, not a user-approved final artistic selection. Any replacement needs visual approval and its own rights/publication check within applicable permissions; no new subscription is authorized. This does not block current technical source/documentation publication.
+2. **11 November hosted/private judge handoff.** No host or charges; intended provider/judge credentials and private sharing consent are not supplied. Verify hosted mode, intended mixed physical bundle and English copy, exact Sandbox/simulation labels, privacy and saved reservation through judging. Fresh Sandbox seed/reset behavior differs from six rehearsal examples. Preserve all historical PLN 840 proof stores; test return origin, persistence and free private judge access.
+3. **Final PayPal contest submission.** Portfolio saved; draft **1273698** remains **4/5**, not submitted. Complete fields/access instructions and submit with a receipt on the agreed 11 November handoff, before the deadline.
+
+Official PayPal rules checked **30 October 2026**: deadline **12 November 2026, 12:00 PST / 20:00 UTC / 21:00 Europe/Warsaw**; judging ends **15 December 2026, 08:00 PST / 16:00 UTC / 17:00 Europe/Warsaw**. Recheck on 11 November. The working build, truthful PayPal+AI evidence, public MIT source, English public YouTube film under three minutes and free judge access must match the entry. Keep secrets out of public source/footage. [Official rules](https://paypalaihackathon.devpost.com/rules)
+
+Current source and technical/audio/publication checks passed; final artistic selection remains open. This is not a universal bug-free claim. No feature expansion is planned. See the [11 November checklist](submission-checklist.md).
+
+## Financial UI proof at ce58fff — unchanged
+
+Public source: [Powers-P1/lotsplit](https://github.com/Powers-P1/lotsplit). The application revision used for this financial UI proof is [`ce58fffab1cac39f8012d34bb4cba7f3e0b60430`](https://github.com/Powers-P1/lotsplit/commit/ce58fffab1cac39f8012d34bb4cba7f3e0b60430). The 73-test source checks and provider evidence in this section are tied to that revision, not the newer 76-test access-gate change. Later documentation commits may differ. No existing source ZIP was replaced by this documentation update.
 
 | Check | Actual result |
 | --- | --- |
@@ -17,7 +50,7 @@ Public source: [Powers-P1/lotsplit](https://github.com/Powers-P1/lotsplit). The 
 | Packing | Plan status `paid`; packing unlocked for four packages. Zero packages were marked packed or shipped. |
 | Original Sandbox preservation | The earlier instance remained byte-identical at revision 97, with its original four completed captures totaling PLN 840. The new run used an isolated Sandbox store. |
 | Public setup | The public [judge setup guide](judge-access.md) provides a verified clean no-key rehearsal path. Its simulated payments/sample AI remain visibly labeled. Entrant-provided free private live-provider judge access is still pending; optional own-account setup does not complete that obligation. |
-| Film and submission | A **135-second** English edit using actual app frames and genuine Sandbox footage is in progress. It replaces the earlier 90-second plan. No public YouTube URL or Devpost completion is claimed. |
+| Film and submission | The 160-second [V2.1 technical cut](https://youtu.be/GmxRrGfU5Yo) is public; final film visual approval is pending, with V1 also available. Portfolio saved, draft 1273698 is 4/5 and not submitted. Hosted/private access and final handoff remain 11 November. |
 
 The first failed Maja return is excluded from clean-success footage. Clean-return scenes must use the recorded Ola/Bartek/Jan path; a Maja recovery scene must retain its manual-recovery label. This is test money, prepared fictional inventory and one test payer, not evidence of real customers or returns on investment. Separate payments provide neither escrow nor atomic group settlement. No live refund, void or webhook result was added by this run.
 
@@ -134,11 +167,13 @@ The original 15:12 UTC Sandbox purchase used four separate application sessions 
 
 ## Remaining verification and delivery
 
-- Finish the 135-second film edit and final privacy/narration review using the verified buyer UI footage. Keep Maja's manual recovery distinct from the three clean returns; public YouTube upload is still pending.
-- Verify real Sandbox webhook signature verification/delivery and provider refund/void outcomes before claiming those live integrations were tested. Their mocked tests already pass.
-- Deploy only after the chosen hosting account and paid resources are authorized; verify restart persistence on the deployed service. The Render Blueprint is prepared and has not been deployed.
-- Complete entrant-provided free private live-provider judge access, upload the English video publicly to YouTube and submit Devpost. The source repository and clean-install guide are public; video and final submission URLs are not yet available.
+- Complete final visual film approval/selection and the two 11 November delivery gates. Preserve current technical-cut evidence boundaries and the public backups.
+- Do not broaden isolated app-void/adapter-refund probes into end-to-end app compensation/refund UI or live webhook proof; those wider live paths remain unverified.
+- Hosting/private judge access is deferred to 11 November: no Render service or charges now. Deployed persistence, return origin and free access through judging remain pending.
+- Complete private live-provider judge access and finish contest draft 1273698 (currently 4/5), then submit and retain its receipt. Source, clean-install guide and public V1 are available; the saved portfolio is not a completed contest submission.
 
 Internal workspace evidence is retained in `outputs/LOTSPLIT/04-implementation/release-checks.json`, `paypal-provider-proof.json` and `sandbox-app-proof.json` beside this source directory. The retained v2 uses `outputs/LOTSPLIT/06-mvp-review/release-check-evidence-v2.json` and `examples-runtime-qa.json`; the pre-English stage adds `release-check-evidence-v3.json` and `examples-runtime-qa-v3.json`; v4 adds `release-check-evidence-v4.json`, `examples-runtime-qa-v4.json` and `english-ai-smoke-v4.json`. The standalone provider probe is historical; the application proof records the later completed purchase and live vision trace. Earlier browser traces and check logs are in the task's temporary `lotsplit-qa` directory. These private working paths are not public submission links and are excluded from the source archive.
 
 The later UI and recovery evidence is retained internally in `outputs/LOTSPLIT/09-publication/sandbox-full-ui-proof-20261030.json` and `sandbox-ui-recovery-proof-20261030.json`. The 135-second film working files are in `outputs/LOTSPLIT/10-film`. These private working paths are not public demo/video links.
+
+Final working evidence: `outputs/LOTSPLIT/12-final-quality/technical-fixes-validation.json`, `overlap-solver-memory-after-fix.json`, `ux-qa.md`, `ux-final-build.json`, `sandbox-refund-void/qa-report.json`; video `outputs/LOTSPLIT/10-film/v2/export/PUBLICATION-RECEIPT-V2.1.json` and `edit/review/final-review-v2.1.md`; runtime `outputs/LOTSPLIT/09-publication/runtime-refresh-proof-20261030-final.json`. Private working evidence is not a public judge invitation.

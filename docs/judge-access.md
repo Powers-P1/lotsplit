@@ -62,13 +62,21 @@ PayPal return URLs must match `APP_ORIGIN`. If port 4319 is occupied, change bot
 
 Local checkout and synchronous provider readback do not require a webhook. To test webhook delivery, a separately hosted HTTPS endpoint and a matching Sandbox `PAYPAL_WEBHOOK_ID` are required; follow [deployment instructions](deployment.md). Webhook verification is not claimed by the no-key or clean-install checks.
 
+## PayPal launch timing
+
+Current technical [160-second V2.1](https://youtu.be/GmxRrGfU5Yo) is already public with verified active-period Pro trial/exact-channel safelist coverage; [V1](https://youtu.be/_wEAe1O4wjc) is backup. Final submission-film visual approval remains open. Hosted launch/final contest handoff remain 11 November.
+
+Hosted launch is deferred to **11 November 2026**, the day before the PayPal deadline. No hosted service or charges exist now. Until the private provider/judge configuration is supplied and the deployed path is tested, entrant-provided free live-provider access is pending. Do not treat the optional own-account setup as a completed private judging handoff.
+
+On launch day, deliberately choose hosted mode and an isolated store. Confirm the intended mixed physical bundle and English entry, not an accidental historical illustration fixture. Rehearsal exposes six examples; fresh Sandbox has its own seed/reset rules and no rehearsal selector. Use supported setup to prepare the intended bundle; preserve all PLN 840 proof stores. Save **Reserved until** through judging on 15 December; reloads do not extend it. Check mode/payment labels, privacy, return origin, optional HTTP Basic plus the separate app role/session, and restart persistence together. Provide necessary private access details through the judging instructions rather than exposing credentials in public source or footage. Keep the working path free and available through the judging period. The short [11 November checklist](submission-checklist.md#11-november-execution-checklist) records the remaining gates.
+
 ## Private live-integration access status
 
 The public repository contains no shared provider keys, Sandbox buyer passwords or organizer invitation. The optional own-account setup above is not a claim that free live-provider judging access has been provisioned.
 
 Any entrant-provided live judging configuration or hosted invitation must be delivered through the submission's private testing/access instructions, together with how to obtain it and its availability period. Until that access is supplied and tested, private live-integration access remains **pending**. Do not use the author's existing private environment or database as a public demo.
 
-The [official rules](https://paypalaihackathon.devpost.com/rules) accept complete local setup instructions as the functional-build route, and also require free judging access and any necessary special-access details through the judging period ending 15 December 2026. The no-key rehearsal is available from this source; its provider simulations remain visibly labeled.
+The [official PayPal rules](https://paypalaihackathon.devpost.com/rules), checked **30 October 2026**, allow a functional local-build route and require free working access with necessary special-access details through **15 December 2026**. Recheck the rules at the 11 November handoff. The no-key rehearsal remains visibly simulated and is not a claim that live-provider access is provisioned.
 
 ## Troubleshooting
 

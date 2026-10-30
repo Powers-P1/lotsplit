@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "project": "LOTSPLIT",
-  "checkedAt": "2026-10-30T18:24:11.557Z",
-  "scope": "Current publication-stage UI purchase at application commit ce58fff; Ola/Bartek/Jan clean returns, Maja explicit same-operation/key recovery, then four completed captures. Historical ai/paypal objects below retain the earlier integration proof.",
+  "checkedAt": "2026-10-30T19:56:14.136441+00:00",
+  "scope": "Public application 93f8570: 83 tests/typecheck/build and scoped UX/memory PASS. Current V2.1 technical cut is public with active-trial exact-channel coverage; final artistic film approval remains open. Full financial UI proof is historical ce58/73, plus narrower isolated app void PLN 180 and adapter refund PLN 1. Three delivery gates remain: film visual selection, hosted/private access and final contest submission.",
   "ai": {
     "textPreferences": {
       "provider": "nebius",
@@ -115,26 +115,68 @@
   ],
   "automatedProviderTransport": "mocked",
   "unverified": [
-    "Maja clean first-attempt buyer callback after the patch was not separately repeated",
-    "Live webhook delivery and signature verification",
-    "Live refund and void outcomes",
-    "Hosted deployment and restart persistence",
-    "Entrant-provided free private live-provider judge access",
-    "Public YouTube URL and final Devpost submission"
+    "Final submission-film visual approval/selection",
+    "A new complete four-buyer financial purchase on final 93f was not repeated",
+    "End-to-end app partial-capture-failure compensation/refund-result UI",
+    "Live webhook delivery/signature verification",
+    "Hosted intended bundle/mode and restart persistence",
+    "Consented private free live-provider judge access",
+    "Final PayPal submission: portfolio saved, draft 1273698 is 4/5"
   ],
   "publicDelivery": {
     "repositoryPublished": true,
-    "youtubeUploaded": false,
+    "youtubeUploaded": true,
     "devpostSubmitted": false,
     "repositoryUrl": "https://github.com/Powers-P1/lotsplit",
-    "testedApplicationCommit": "ce58fffab1cac39f8012d34bb4cba7f3e0b60430",
+    "testedApplicationCommit": "93f857046d8d762e6ac19849e0802066a830e267",
     "judgeSetupGuide": "docs/judge-access.md",
     "noKeyCleanInstallRehearsalVerified": true,
-    "privateFreeLiveJudgeAccess": "PENDING",
-    "youtubeUrl": null,
-    "filmEditTargetSeconds": 135,
-    "filmEditStatus": "IN_PROGRESS_ACTUAL_APP_FRAMES",
-    "devpostUrl": null
+    "privateFreeLiveJudgeAccess": "PENDING_NOT_SUPPLIED_OR_CONSENTED",
+    "youtubeUrl": "https://youtu.be/GmxRrGfU5Yo",
+    "filmEditTargetSeconds": 160,
+    "filmEditStatus": "PUBLIC_V2_1_TECHNICAL_CUT_FINAL_VISUAL_APPROVAL_PENDING",
+    "devpostUrl": null,
+    "financialRuntimeProofCommit": "ce58fffab1cac39f8012d34bb4cba7f3e0b60430",
+    "devpostPortfolioSaved": true,
+    "devpostPortfolioUrl": "https://devpost.com/software/lotsplit",
+    "devpostContestDraftId": 1273698,
+    "devpostContestDraftProgress": "4/5",
+    "filmV1": {
+      "status": "PUBLIC_BACKUP",
+      "durationSeconds": 135,
+      "youtubeUrl": "https://youtu.be/_wEAe1O4wjc"
+    },
+    "filmV2": {
+      "version": "2.1",
+      "status": "PUBLIC_TECHNICAL_CUT_NOT_FINAL_ARTISTIC_SELECTION",
+      "durationSeconds": 160,
+      "masterBytes": 25204499,
+      "masterSha256": "27063c5434a5fcb7a9a19efc74eb871edd09f988a9b160ffef88cdbf449bea3d",
+      "youtubeUrl": "https://youtu.be/GmxRrGfU5Yo",
+      "publishedReceiptObservedAt": "2026-10-30T19:45:17.934Z",
+      "anonymousOfficialOembedConfirmed": true,
+      "pictureUnchanged": true,
+      "independentAudioDeltaReview": "PASS",
+      "reviewScope": "ASR/waveform/levels,metadata,unchanged picture; reviewer does not claim subjective listening/continuous playback.",
+      "musicCoverage": "Existing active Pro trial, exact channel safelist and active-period publication verified by lead",
+      "perVideoCertificateRequired": false,
+      "artisticAcceptance": "PENDING_USER_VISUAL_APPROVAL"
+    },
+    "hosting": {
+      "providerPlanned": "Render",
+      "status": "DEFERRED_TO_2026_11_11",
+      "hostCreated": false,
+      "chargesIncurred": false,
+      "privateFreeLiveJudgeAccess": "PENDING_NOT_SUPPLIED_OR_CONSENTED",
+      "plannedDate": "2026-11-11"
+    },
+    "availableTechnicalFilmUrl": "https://youtu.be/GmxRrGfU5Yo",
+    "preferredSubmissionFilmUrl": null,
+    "selectedSubmissionFilm": {
+      "status": "PENDING_VISUAL_APPROVAL",
+      "url": null,
+      "replacementRequiresOwnRightsAndPublicationCheck": true
+    }
   },
   "evidencePolicy": "Sanitized public summary; no approval URLs, invitation links, credentials, sessions or payment request/idempotency keys. See verification.md for scope.",
   "localChecksScope": "Original illustration-only integration snapshot; Docker/container check covered the original 25 PNGs. Expanded-source results are separate below.",
@@ -1274,7 +1316,10 @@
     "ai": "Historical original text/one-image vision proof; unchanged.",
     "paypal": "Historical earlier API purchase proof; unchanged.",
     "englishRelease": "Historical English v4 source/package and AI smoke.",
-    "publicationStage": "Later source commit ce58fff and isolated normal-UI Sandbox run with a manual Maja recovery."
+    "publicationStage": "Later source commit ce58fff and isolated normal-UI Sandbox run with a manual Maja recovery.",
+    "latestSourceRevision": "Final public 93f application, 83 tests/typecheck/build and scoped UX/memory; full purchase proof remains ce58/73.",
+    "prelaunchPlan": "Current PayPal-only launch preparation; final post-review source/test/media identity pending root handoff.",
+    "additionalSandboxEvidence": "Isolated app withdrawal void PLN 180 and adapter-only capture/refund PLN 1; no end-to-end app refund compensation/UI proof."
   },
   "publicationStage": {
     "verifiedAt": "2026-10-30T18:24:11.557Z",
@@ -1370,11 +1415,16 @@
     "film": {
       "targetSeconds": 135,
       "supersedesSeconds": 90,
-      "status": "IN_PROGRESS",
+      "status": "V2_1_PUBLIC_TECHNICAL_CUT_FINAL_VISUAL_SELECTION_PENDING",
       "actualApplicationFrames": true,
       "genuineSandboxFootageAvailable": true,
-      "youtubeUrl": null,
-      "majaFailedInitialReturnExcludedFromCleanSuccessFootage": true
+      "youtubeUrl": "https://youtu.be/GmxRrGfU5Yo",
+      "majaFailedInitialReturnExcludedFromCleanSuccessFootage": true,
+      "v1DurationSeconds": 135,
+      "v2Finished": false,
+      "v1YoutubeUrl": "https://youtu.be/_wEAe1O4wjc",
+      "v2DurationSeconds": 160,
+      "v2TechnicalCutFinished": true
     },
     "limits": [
       "Sandbox test funds; one test payer for four logical buyers",
@@ -1382,7 +1432,197 @@
       "No escrow or atomic group settlement",
       "No live refund, void or webhook result added",
       "No package marked packed or shipped",
-      "Private free live judge access, YouTube and Devpost pending"
+      "Private free live judge access and final contest submission pending; public V1 available"
     ]
+  },
+  "latestSourceRevision": {
+    "commit": "93f857046d8d762e6ac19849e0802066a830e267",
+    "commitUrl": "https://github.com/Powers-P1/lotsplit/commit/93f857046d8d762e6ac19849e0802066a830e267",
+    "public": true,
+    "testsPassed": 83,
+    "testsTotal": 83,
+    "testsFailed": 0,
+    "typecheck": "PASS",
+    "productionBuild": "PASS",
+    "qualityStatus": "PASS_ALL_CURRENT_MATERIAL_FINDINGS_CLOSED",
+    "browserUxFindingsFixed": 5,
+    "desktopMobileQa": "PASS_SCOPED",
+    "newFullGroupPurchaseVerification": false,
+    "financialUiProofCommit": "ce58fffab1cac39f8012d34bb4cba7f3e0b60430",
+    "financialUiProofTestsPassed": 73,
+    "changes": [
+      "Reviewed technical fixes and bounded compact solver",
+      "Five organizer UX corrections and settled-void buyer display correction"
+    ],
+    "sourceEvidence": "12-final-quality/technical-fixes-validation.json"
+  },
+  "prelaunchPlan": {
+    "competition": "PayPal AI Hackathon",
+    "rulesUrl": "https://paypalaihackathon.devpost.com/rules",
+    "rulesVerifiedDate": "2026-10-30",
+    "rulesRecheckDate": "2026-11-11",
+    "submissionDeadline": {
+      "date": "2026-11-12",
+      "pacific": "12:00 PST",
+      "utc": "20:00",
+      "europeWarsaw": "21:00"
+    },
+    "judgingEnd": {
+      "date": "2026-12-15",
+      "pacific": "08:00 PST",
+      "utc": "16:00",
+      "europeWarsaw": "17:00"
+    },
+    "plannedHostedLaunchDate": "2026-11-11",
+    "openMaterialGateGroups": 3,
+    "gateGroups": [
+      {
+        "id": "source_qa",
+        "title": "Close the fresh application QA findings",
+        "status": "CLOSED",
+        "detail": "Public 93f: 83/83, full typecheck/build, scoped desktop/mobile UX, five fixes, solver memory and settled-void UI checks passed."
+      },
+      {
+        "id": "media_handoff",
+        "title": "Approve the final visual film selection and chosen public URL",
+        "status": "OPEN_VISUAL_APPROVAL_PENDING",
+        "detail": "Current V2.1 technical/audio/publication checks passed and this upload is covered by the active Pro trial/exact channel safelist. User visual approval of the final artistic submission cut is pending. Any replacement requires its own rights/publication check; no new subscription authorized."
+      },
+      {
+        "id": "hosted_judge_access",
+        "title": "11 November hosted launch and private free judge-access handoff",
+        "status": "DEFERRED_TO_2026_11_11",
+        "detail": "No host or charges; private credentials/sharing consent not supplied. On 11 November verify intended mixed physical bundle/English, mode/payment labels, privacy, reservation through judging, return origin and persistence; preserve historical PLN 840 proof stores."
+      },
+      {
+        "id": "contest_submission",
+        "title": "Complete and submit the PayPal contest entry",
+        "status": "OPEN",
+        "detail": "Portfolio saved; draft 1273698 is 4/5 and not submitted. Final fields/access and receipt remain for 11 November."
+      }
+    ],
+    "sourceFindingsUnderValidation": 0,
+    "freshQaStatus": "PASS",
+    "finalSourceCommit": "93f857046d8d762e6ac19849e0802066a830e267",
+    "finalTestsPassed": 83,
+    "finalMediaHash": null,
+    "finalHandoffStatus": "TECHNICAL_DOCS_READY_FINAL_FILM_VISUAL_APPROVAL_PENDING",
+    "featureScope": "Close material findings and delivery requirements; no feature expansion.",
+    "historicalAuditArtifactsModified": false,
+    "documentationTaskExternalActionsPerformed": false,
+    "filmPublicationBeforeDate": "2026-11-08",
+    "filmPublicationTiming": "Current V2.1 technical cut published 30 October 2026, before 8 November. Final artistic selection is pending; any replacement needs its own permission/publication check. Hosted/private-access and contest handoff remain 11 November.",
+    "newSubscriptionAuthorized": false,
+    "mediaLicenseGate": {
+      "accountTrialEndsDateFromLeadReceipt": "2026-11-08",
+      "publicUploadBeforeDate": "2026-11-08",
+      "connectedOrRegisteredChannelRequired": true,
+      "activePeriodPublicationReceiptRequired": true,
+      "clearanceStatus": "ACTIVE_TRIAL_EXACT_CHANNEL_SAFELIST_AND_PUBLICATION_CONFIRMED",
+      "policyVerifiedDate": "2026-10-30",
+      "trialHelpUrl": "https://www.epidemicsoundhelp.com/hc/en-us/articles/26246804344978-How-does-the-free-trial-work",
+      "cancellationHelpUrl": "https://www.epidemicsoundhelp.com/hc/en-us/articles/26254650213266-What-happens-to-content-when-a-subscription-is-canceled",
+      "voiceAndScenePermissionsSeparate": true,
+      "publicationUrl": "https://youtu.be/GmxRrGfU5Yo",
+      "publicationObservedAt": "2026-10-30T19:45:17.934Z",
+      "exactChannelId": "UCpJTOM_Aiaysdgqpl6N8yyA",
+      "channelSafelistVerifiedByLead": true,
+      "activeTrialVerifiedByLead": true,
+      "perVideoCertificateRequired": false,
+      "furtherAccountOperationRequired": false
+    },
+    "status": "TECHNICAL_QA_CLOSED_THREE_DELIVERY_GATES_OPEN",
+    "publicTechnicalFilmHash": "27063c5434a5fcb7a9a19efc74eb871edd09f988a9b160ffef88cdbf449bea3d"
+  },
+  "historicalSource72e9150": {
+    "commit": "72e9150b85d64a85f3b55f22ad18dc34319ef93c",
+    "commitUrl": "https://github.com/Powers-P1/lotsplit/commit/72e9150b85d64a85f3b55f22ad18dc34319ef93c",
+    "testsPassed": 76,
+    "testsTotal": 76,
+    "testsFailed": 0,
+    "typecheck": "PASS",
+    "productionBuild": "PASS",
+    "changes": [
+      "Optional HTTP Basic judging-access gate",
+      "Application session checked before consuming authenticated AI allowance"
+    ],
+    "newFinancialProviderVerification": false,
+    "financialUiProofCommit": "ce58fffab1cac39f8012d34bb4cba7f3e0b60430",
+    "financialUiProofTestsPassed": 73
+  },
+  "checkedAtMeaning": "Documentation handoff time; proof receipt dates remain separate.",
+  "additionalSandboxEvidence": {
+    "reportScope": "Separate isolated application/adapter probes, not another complete four-buyer purchase on the final source.",
+    "applicationWithdrawalVoid": {
+      "amountCents": 18000,
+      "currency": "PLN",
+      "normalAppWithdrawal": true,
+      "genuineSandboxApprovalAndCallback": true,
+      "providerGet": "VOIDED",
+      "planInvalidated": true,
+      "financialRetries": 0,
+      "settledVoidUiRegression": "PASS",
+      "releasedHeadingAndStatus": true,
+      "staleAuthorizedHeading": false,
+      "payCta": false,
+      "packingBlocked": true,
+      "uiRegressionAppStateByteEquivalent": true,
+      "uiRegressionAdditionalProviderCalls": 0
+    },
+    "providerAdapterRefundOnly": {
+      "amountCents": 100,
+      "currency": "PLN",
+      "genuineSandboxApproval": true,
+      "capture": "COMPLETED",
+      "refundGet": "COMPLETED",
+      "captureGetRaw": "REFUNDED",
+      "captureGetNormalized": "UNKNOWN",
+      "financialRetries": 0,
+      "appAutomaticCompensationExercised": false,
+      "appRefundResultUiExercised": false
+    },
+    "oneExistingSandboxPayer": true,
+    "realPayPalLiveFunds": false
+  },
+  "solverMemoryFixture": {
+    "runtime": "Compiled Node; no tsx",
+    "maxOldSpaceMiB": 256,
+    "buyers": 4,
+    "samePreferredItemsPerBuyer": 6,
+    "acceptedAlternativesPerBuyer": 18,
+    "uniqueAssignedItems": 24,
+    "itemsPerBuyer": [
+      6,
+      6,
+      6,
+      6
+    ],
+    "minimumAlternativesOverall": 18,
+    "totalCents": 84000,
+    "currency": "PLN",
+    "solverElapsedMs": 66.6636,
+    "peakRssMiB": 121.4296875,
+    "externalProviderCalls": 0,
+    "scope": "One isolated overlapping-choice fixture, not a hosted load benchmark",
+    "workLimitCode": "SOLVER_LIMIT",
+    "limitHttpStatus": 409,
+    "workLimitPreservesSavedState": true
+  },
+  "finalUxQa": {
+    "status": "PASS",
+    "reviewedOrganizerFindingsFixed": 5,
+    "desktopViewport": "1440x1000",
+    "mobileViewport": "390x844",
+    "scope": "Garage Sale rehearsal main flow with seeded other-buyer choices, prior-plan resolution and brief office/workshop layout checks; not all six complete purchases.",
+    "payments": "SIMULATED",
+    "ownFixturesAndHelpersClosed": true,
+    "mainHistoricalProofStoresUntouched": true
+  },
+  "runtimeRefresh": {
+    "status": "PASS",
+    "mode": "rehearsal",
+    "canonicalStateSessionsAndLoginLinksPreserved": true,
+    "originalSandboxInstancesUntouched": true,
+    "providerRequestsByRefresh": 0
   }
 }
