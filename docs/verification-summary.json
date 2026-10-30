@@ -1,0 +1,1261 @@
+{
+  "schemaVersion": 1,
+  "project": "LOTSPLIT",
+  "checkedAt": "2026-10-30T15:12:34.973Z",
+  "scope": "Normal application API purchase flow with genuine browser Sandbox checkout approvals; full buyer UI/return walkthrough remains pending.",
+  "ai": {
+    "textPreferences": {
+      "provider": "nebius",
+      "mode": "live",
+      "model": "nvidia/nemotron-3-super-120b-a12b",
+      "requestId": "f24dceeebae3dae87d5defdbec531af6",
+      "responseId": "chatcmpl-bd10c27dfa0b44ca",
+      "completedAt": "2026-10-30T13:52:47.606Z",
+      "requiresHumanConfirmation": true
+    },
+    "vision": {
+      "provider": "nebius",
+      "mode": "live",
+      "model": "nvidia/Nemotron-3.5-Super-VL",
+      "sourceImage": "public/assets/items/01.png",
+      "imageSha256": "5426c641a0af7d5bd3e7623927b085687aee2bc8d95f0f0bf2f241b2591d6528",
+      "requestId": "9e2b27a11daa57bc755ba45e27d16e32",
+      "responseId": "chatcmpl-85048b1e81d3ff4a",
+      "completedAt": "2026-10-30T15:02:33.033Z",
+      "requiresHumanConfirmation": true,
+      "automaticallyApplied": false,
+      "scope": "One supplied item photo; prepared 24-item catalog confirmed separately."
+    }
+  },
+  "paypal": {
+    "environment": "sandbox",
+    "logicalBuyers": 4,
+    "separateApplicationSessions": 4,
+    "testPayerAccountsUsed": 1,
+    "verifiedAuthorizations": 4,
+    "captures": [
+      {
+        "status": "COMPLETED",
+        "rawStatus": "COMPLETED",
+        "amountCents": 18000,
+        "currency": "PLN",
+        "checkedAt": "2026-10-30T15:12:32.573Z"
+      },
+      {
+        "status": "COMPLETED",
+        "rawStatus": "COMPLETED",
+        "amountCents": 21000,
+        "currency": "PLN",
+        "checkedAt": "2026-10-30T15:12:33.263Z"
+      },
+      {
+        "status": "COMPLETED",
+        "rawStatus": "COMPLETED",
+        "amountCents": 22000,
+        "currency": "PLN",
+        "checkedAt": "2026-10-30T15:12:34.055Z"
+      },
+      {
+        "status": "COMPLETED",
+        "rawStatus": "COMPLETED",
+        "amountCents": 23000,
+        "currency": "PLN",
+        "checkedAt": "2026-10-30T15:12:34.971Z"
+      }
+    ],
+    "totalCapturedCents": 84000,
+    "currency": "PLN",
+    "independentProviderReadbacks": true,
+    "packingAllowed": true,
+    "packageCount": 4,
+    "noPackageMarkedPackedOrShipped": true,
+    "escrowOrAtomicSettlement": false
+  },
+  "localChecks": [
+    {
+      "command": "npm test",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": 48,
+      "passed": 48,
+      "failed": 0
+    },
+    {
+      "command": "npm run typecheck",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": null,
+      "passed": null,
+      "failed": null
+    },
+    {
+      "command": "npm run build",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": null,
+      "passed": null,
+      "failed": null
+    },
+    {
+      "command": "docker build --progress=plain --tag lotsplit:release-check-20261030 .",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": null,
+      "passed": null,
+      "failed": null
+    },
+    {
+      "command": "docker run --rm --network none --entrypoint node lotsplit:release-check-20261030 <package inspection>",
+      "status": "PASS",
+      "exitCode": 0,
+      "tests": null,
+      "passed": null,
+      "failed": null
+    }
+  ],
+  "automatedProviderTransport": "mocked",
+  "unverified": [
+    "Full buyer UI and real payment-return walkthrough",
+    "Live webhook delivery and signature verification",
+    "Live refund and void outcomes",
+    "Hosted deployment and restart persistence"
+  ],
+  "publicDelivery": {
+    "repositoryPublished": false,
+    "youtubeUploaded": false,
+    "devpostSubmitted": false
+  },
+  "evidencePolicy": "Sanitized public summary; no approval URLs, invitation links, credentials, sessions or payment request/idempotency keys. See verification.md for scope.",
+  "localChecksScope": "Original illustration-only integration snapshot; Docker/container check covered the original 25 PNGs. Expanded-source results are separate below.",
+  "threeExampleRelease": {
+    "date": "2026-10-30",
+    "examples": [
+      {
+        "id": "vinyl",
+        "name": "Winyle z drugiej ręki"
+      },
+      {
+        "id": "books",
+        "name": "Biblioteczka z przeprowadzki"
+      },
+      {
+        "id": "illustrations",
+        "name": "Grafiki kolekcjonerskie"
+      }
+    ],
+    "defaultFreshRehearsalExample": "vinyl",
+    "itemsPerExample": 24,
+    "logicalBuyers": 4,
+    "itemsPerBuyer": 6,
+    "itemSharesTotalCents": 72000,
+    "sharedCostCents": 12000,
+    "totalCents": 84000,
+    "currency": "PLN",
+    "inventoryAndImages": "Fictional, prepared demonstration content; original AI-generated visuals.",
+    "selectorScope": "Rehearsal only; replacing a set clears its choices, consents, simulated operations and packing. Sandbox selection/reset is rejected without rewriting stored collection/payment history.",
+    "noAdditionalLiveProviderTransactionsClaimed": true,
+    "checks": [
+      {
+        "command": "npm test",
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 59,
+        "passed": 59,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0,
+        "durationMs": 593.1955,
+        "byFile": {
+          "server/domain.test.ts": 36,
+          "server/providers.test.ts": 20,
+          "server/demo-routes.test.ts": 3
+        },
+        "providerTransport": "mocked"
+      },
+      {
+        "command": ".\\node_modules\\.bin\\tsc.cmd -p tsconfig.json",
+        "status": "PASS",
+        "scope": "Client and shared TypeScript; completed with no diagnostics."
+      },
+      {
+        "command": "npx tsc -p tsconfig.server.json --noEmit",
+        "status": "PASS",
+        "exitCode": 0
+      },
+      {
+        "command": "Strict no-emit TypeScript check of server/demo-routes.test.ts and server/domain.test.ts",
+        "status": "PASS",
+        "exitCode": 0
+      },
+      {
+        "command": "npm run build",
+        "status": "NOT_COMPLETED_SNAPSHOT_SUPERSEDED"
+      },
+      {
+        "command": "Production browser review of three examples",
+        "status": "NOT_COMPLETED_SNAPSHOT_SUPERSEDED"
+      },
+      {
+        "command": "Docker build and container package check",
+        "status": "NOT_REPEATED",
+        "scope": "Historical result above only."
+      }
+    ],
+    "publicSourcePackage": {
+      "version": "v2",
+      "status": "SUPERSEDED_BEFORE_PACKAGE_FREEZE"
+    },
+    "snapshotStatus": "HISTORICAL_PREVIOUS_SOURCE_SNAPSHOT"
+  },
+  "internalReview": {
+    "date": "2026-10-30",
+    "sameThreeCodexJurors": true,
+    "samePanelInternalTuning": true,
+    "freshBlindEvaluation": false,
+    "newNumericalScore": false,
+    "verdict": "Conditional GO for the final demonstration; local MVP consistent with the accepted concept.",
+    "reviewPredatesAdditionalExamples": true,
+    "additionalExamplesReReviewedByPanel": false,
+    "remainingRequirements": [
+      "Complete buyer UI with genuine Sandbox return to the correct session",
+      "Live Sandbox failure compensation/refund/void and readbacks, plus webhook delivery/signatures",
+      "One coherent story from AI proposal through human review/application to allocation, consent and payment"
+    ],
+    "demoBreadthRequest": "Six prepared rehearsal catalogs added, including mixed garage-sale and fictional office-asset bundles; no new same-panel verdict or live integration proof."
+  },
+  "fiveExampleRelease": {
+    "date": "2026-10-30",
+    "snapshotStatus": "HISTORICAL_RETAINED_V2_SOURCE",
+    "purchaseScope": "A seller offers a whole bundle only together; it may mix unrelated objects. Buyers want different parts.",
+    "defaultFreshRehearsalExample": "home",
+    "mainEntryExamples": [
+      "home",
+      "workshop",
+      "vinyl"
+    ],
+    "drawerExamples": [
+      "home",
+      "workshop",
+      "vinyl",
+      "books",
+      "illustrations"
+    ],
+    "itemsPerExample": 24,
+    "logicalBuyers": 4,
+    "itemsPerBuyer": 6,
+    "currency": "PLN",
+    "examples": [
+      {
+        "id": "home",
+        "name": "Wyprzedaż garażowa",
+        "itemSharesTotalCents": 258000,
+        "sharedCostCents": 24000,
+        "totalCents": 282000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          85500,
+          61000,
+          75000,
+          60500
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          85000,
+          61000,
+          75000,
+          61000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 95000,
+          "ola": 70000,
+          "bartek": 85000,
+          "jan": 70000,
+          "ewa": 70000
+        },
+        "shortfallWithoutJanCents": 32000,
+        "contents": "Mixed garage-sale lot: bicycle, instruments, drill, tent, console, furniture, appliances, plant and sports equipment."
+      },
+      {
+        "id": "workshop",
+        "name": "Wyposażenie warsztatu",
+        "itemSharesTotalCents": 142000,
+        "sharedCostCents": 16000,
+        "totalCents": 158000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          61000,
+          28000,
+          31000,
+          38000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          62000,
+          28000,
+          31000,
+          37000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 65000,
+          "ola": 33000,
+          "bartek": 36000,
+          "jan": 43000,
+          "ewa": 43000
+        },
+        "shortfallWithoutJanCents": 24000,
+        "contents": "Power tools, hand tools, measurement equipment and accessories."
+      },
+      {
+        "id": "vinyl",
+        "name": "Winyle z drugiej ręki",
+        "itemSharesTotalCents": 72000,
+        "sharedCostCents": 12000,
+        "totalCents": 84000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          18000,
+          21000,
+          22000,
+          23000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          19000,
+          21000,
+          22000,
+          22000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 20000,
+          "ola": 23000,
+          "bartek": 25000,
+          "jan": 26000,
+          "ewa": 26000
+        },
+        "shortfallWithoutJanCents": 16000
+      },
+      {
+        "id": "books",
+        "name": "Biblioteczka z przeprowadzki",
+        "itemSharesTotalCents": 72000,
+        "sharedCostCents": 12000,
+        "totalCents": 84000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          18000,
+          21000,
+          22000,
+          23000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          19000,
+          21000,
+          22000,
+          22000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 20000,
+          "ola": 23000,
+          "bartek": 25000,
+          "jan": 26000,
+          "ewa": 26000
+        },
+        "shortfallWithoutJanCents": 16000
+      },
+      {
+        "id": "illustrations",
+        "name": "Grafiki kolekcjonerskie",
+        "itemSharesTotalCents": 72000,
+        "sharedCostCents": 12000,
+        "totalCents": 84000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          18000,
+          21000,
+          22000,
+          23000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          19000,
+          21000,
+          22000,
+          22000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 20000,
+          "ola": 23000,
+          "bartek": 25000,
+          "jan": 26000,
+          "ewa": 26000
+        },
+        "shortfallWithoutJanCents": 16000
+      }
+    ],
+    "inventoryAndImages": "Fictional prepared demonstration content; original AI-generated visuals. Unused furniture-only generation excluded.",
+    "selectorScope": "Rehearsal only; replacing a set clears choices, consents, simulated operations and packing. Sandbox reset/selection rejected without rewriting saved collection/payment history.",
+    "noAdditionalLiveProviderTransactionsClaimed": true,
+    "connectionRecovery": {
+      "implemented": true,
+      "behavior": "Successful background state read clears the transient connection warning, preserving meaningful action/payment errors. Payment POSTs are not automatically repeated.",
+      "browserVerification": "PASS",
+      "stateReadWarningClearedAfterHTTP200": true,
+      "mutationUncertaintyPreservedAcrossBackgroundReads": true,
+      "automaticPostRetries": 0,
+      "mutationProbe": "One blocked POST /api/auth/logout; no payment operation created by this probe."
+    },
+    "checks": [
+      {
+        "command": "npm test",
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 64,
+        "passed": 64,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0,
+        "durationMs": 836.3773,
+        "byFile": {
+          "server/domain.test.ts": 40,
+          "server/providers.test.ts": 20,
+          "server/demo-routes.test.ts": 4
+        },
+        "providerTransport": "mocked"
+      },
+      {
+        "command": "npx tsc -p tsconfig.server.json --noEmit",
+        "status": "PASS",
+        "exitCode": 0
+      },
+      {
+        "command": "Strict no-emit TypeScript check of server/demo-routes.test.ts and server/domain.test.ts",
+        "status": "PASS",
+        "exitCode": 0
+      },
+      {
+        "command": "npm run typecheck",
+        "status": "PASS",
+        "scope": "Final client/shared and server TypeScript after image-rendering and connection recovery changes."
+      },
+      {
+        "command": "npm run build",
+        "status": "PASS",
+        "entryBundle": "/assets/index-y6XqE7g0.js",
+        "organizerBundle": "OrganizerFlow-4HSF_8CZ.js",
+        "warning": "Existing organizer chunk exceeds 500 kB."
+      },
+      {
+        "command": "Production browser review of main examples and connection recovery",
+        "status": "PASS",
+        "scope": "Main three-example entry; garage allocation; workshop simulated capture/packing; mobile layout/item details; drafts/reload; read and mutation recovery.",
+        "viewports": [
+          "1440x900",
+          "430x930"
+        ],
+        "consoleErrorsWarnings": "none in final clean page",
+        "horizontalOverflow": "none at tested widths",
+        "allFiveCompleteBrowserPurchases": false,
+        "screenshots": "Displayed inline in CUA; no persisted PNG/JPEG file paths claimed."
+      },
+      {
+        "command": "Docker build and container package check",
+        "status": "NOT_REPEATED",
+        "scope": "Original illustration-only result remains historical."
+      }
+    ],
+    "publicSourcePackage": {
+      "version": "v2",
+      "status": "PACKAGED",
+      "fileCount": 75,
+      "pngCount": 33,
+      "contents": "Exact source/assets/docs/MIT allowlist and blank-credential .env.example; excludes private environments, runtime data, dist, node_modules, raw evidence and session keys.",
+      "archiveHashLocation": "Separate versioned package report and SHA-256 manifest."
+    },
+    "sandboxPreservationQA": {
+      "readOnly": true,
+      "revisionBefore": 97,
+      "revisionAfter": 97,
+      "planStatus": "paid",
+      "completedCaptures": 4,
+      "totalCapturedCents": 84000,
+      "newSandboxOrdersOrCaptures": 0
+    }
+  },
+  "sixExampleRelease": {
+    "date": "2026-10-30",
+    "snapshotStatus": "HISTORICAL_PRE_ENGLISH_OFFICE_DELTA_SOURCE_NOT_PACKAGED",
+    "purchaseScope": "A seller offers a whole bundle only together; fictional mixed garage, office assets and workshop are the main examples.",
+    "defaultFreshRehearsalExample": "home",
+    "mainEntryExamples": [
+      "home",
+      "office",
+      "workshop"
+    ],
+    "drawerExamples": [
+      "home",
+      "office",
+      "workshop",
+      "vinyl",
+      "books",
+      "illustrations"
+    ],
+    "itemsPerExample": 24,
+    "logicalBuyers": 4,
+    "itemsPerBuyer": 6,
+    "currency": "PLN",
+    "examples": [
+      {
+        "id": "home",
+        "name": "Wyprzedaż garażowa",
+        "itemSharesTotalCents": 258000,
+        "sharedCostCents": 24000,
+        "totalCents": 282000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          85500,
+          61000,
+          75000,
+          60500
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          85000,
+          61000,
+          75000,
+          61000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 95000,
+          "ola": 70000,
+          "bartek": 85000,
+          "jan": 70000,
+          "ewa": 70000
+        },
+        "shortfallWithoutJanCents": 32000,
+        "contents": "Mixed garage-sale lot: bicycle, instruments, drill, tent, console, furniture, appliances, plant and sports equipment."
+      },
+      {
+        "id": "office",
+        "name": "Likwidacja małej firmy",
+        "itemSharesTotalCents": 432000,
+        "sharedCostCents": 48000,
+        "totalCents": 480000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          187000,
+          127000,
+          82000,
+          84000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          183000,
+          127000,
+          82000,
+          88000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 220000,
+          "ola": 150000,
+          "bartek": 100000,
+          "jan": 100000,
+          "ewa": 100000
+        },
+        "shortfallWithoutJanCents": 10000,
+        "contents": "Fictional whole small-office asset bundle: computers, furniture, printers, networking and back-room equipment."
+      },
+      {
+        "id": "workshop",
+        "name": "Wyposażenie warsztatu",
+        "itemSharesTotalCents": 142000,
+        "sharedCostCents": 16000,
+        "totalCents": 158000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          61000,
+          28000,
+          31000,
+          38000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          62000,
+          28000,
+          31000,
+          37000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 65000,
+          "ola": 33000,
+          "bartek": 36000,
+          "jan": 43000,
+          "ewa": 43000
+        },
+        "shortfallWithoutJanCents": 24000,
+        "contents": "Power tools, hand tools, measurement equipment and accessories."
+      },
+      {
+        "id": "vinyl",
+        "name": "Winyle z drugiej ręki",
+        "itemSharesTotalCents": 72000,
+        "sharedCostCents": 12000,
+        "totalCents": 84000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          18000,
+          21000,
+          22000,
+          23000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          19000,
+          21000,
+          22000,
+          22000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 20000,
+          "ola": 23000,
+          "bartek": 25000,
+          "jan": 26000,
+          "ewa": 26000
+        },
+        "shortfallWithoutJanCents": 16000
+      },
+      {
+        "id": "books",
+        "name": "Biblioteczka z przeprowadzki",
+        "itemSharesTotalCents": 72000,
+        "sharedCostCents": 12000,
+        "totalCents": 84000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          18000,
+          21000,
+          22000,
+          23000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          19000,
+          21000,
+          22000,
+          22000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 20000,
+          "ola": 23000,
+          "bartek": 25000,
+          "jan": 26000,
+          "ewa": 26000
+        },
+        "shortfallWithoutJanCents": 16000
+      },
+      {
+        "id": "illustrations",
+        "name": "Grafiki kolekcjonerskie",
+        "itemSharesTotalCents": 72000,
+        "sharedCostCents": 12000,
+        "totalCents": 84000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          18000,
+          21000,
+          22000,
+          23000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          19000,
+          21000,
+          22000,
+          22000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 20000,
+          "ola": 23000,
+          "bartek": 25000,
+          "jan": 26000,
+          "ewa": 26000
+        },
+        "shortfallWithoutJanCents": 16000
+      }
+    ],
+    "inventoryAndImages": "Fictional prepared demonstration content; original AI-generated visuals.",
+    "officeScope": "One prepared bundle of 24 used computers, furniture, printers, network and back-room assets sold together before the lease ends; no billing, invoice processing or company-liquidation management features.",
+    "selectorScope": "Rehearsal only; replacing a set clears choices, consents, simulated operations and packing. Sandbox reset/selection rejected without rewriting saved collection/payment history.",
+    "noAdditionalLiveProviderTransactionsClaimed": true,
+    "connectionRecovery": {
+      "implemented": true,
+      "behavior": "Successful background state read clears the transient connection warning, preserving meaningful action/payment errors. Payment POSTs are not automatically repeated.",
+      "browserVerification": "PASS",
+      "stateReadWarningClearedAfterHTTP200": true,
+      "mutationUncertaintyPreservedAcrossBackgroundReads": true,
+      "automaticPostRetries": 0,
+      "mutationProbe": "One blocked POST /api/auth/logout; no payment operation created by this probe."
+    },
+    "priorRuntimeEvidence": "Garage/workshop/mobile/draft/recovery checks retained from the v2 review, not a new full six-example browser run.",
+    "checks": [
+      {
+        "command": "npm test",
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 66,
+        "passed": 66,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0,
+        "byFile": {
+          "server/domain.test.ts": 42,
+          "server/providers.test.ts": 20,
+          "server/demo-routes.test.ts": 4
+        },
+        "providerTransport": "mocked",
+        "scenarioMatrix": "12 scenarios x 6 examples; zero provider-spy calls",
+        "initialBackendRunDurationMs": 929.1696,
+        "finalRerunToolChunk": "06653a"
+      },
+      {
+        "command": "npx tsc -p tsconfig.server.json --noEmit",
+        "status": "PASS",
+        "exitCode": 0
+      },
+      {
+        "command": "Strict no-emit TypeScript check of server/demo-routes.test.ts and server/domain.test.ts",
+        "status": "PASS",
+        "exitCode": 0
+      },
+      {
+        "command": "npm run typecheck",
+        "status": "PASS",
+        "exitCode": 0
+      },
+      {
+        "command": "npm run build",
+        "status": "PASS",
+        "exitCode": 0,
+        "entryBundle": "/assets/index-DQTV_21S.js",
+        "organizerBundle": "OrganizerFlow-B5_JH-dc.js"
+      },
+      {
+        "command": "Production delta browser review of office and main entry",
+        "status": "PASS",
+        "provider": "CUA Edge extension, root-authorized fallback because IAB unavailable",
+        "scope": "Main entry desktop/mobile; office collecting/solve at PLN 4800; 24 buyer thumbnails and selected details.",
+        "officeCaptureExecuted": false,
+        "sixCompleteBrowserPurchases": false
+      },
+      {
+        "command": "Prior five-example runtime review",
+        "status": "PASS_RETAINED_V2",
+        "scope": "Garage allocation, workshop simulated capture/packing, mobile, draft isolation/reload, read/mutation recovery."
+      },
+      {
+        "command": "Docker build and container package check",
+        "status": "NOT_REPEATED",
+        "scope": "Original illustration-only result remains historical."
+      }
+    ],
+    "publicSourcePackage": {
+      "version": "v3",
+      "status": "NOT_CREATED_SUPERSEDED_BY_ENGLISH_V4",
+      "priorV2RetainedUnchanged": true
+    }
+  },
+  "englishRelease": {
+    "date": "2026-10-30",
+    "snapshotStatus": "FINAL_ENGLISH_QA_PASSED_SOURCE_FROZEN",
+    "defaultLanguage": "English",
+    "releaseVersion": "v4",
+    "defaultFreshRehearsalExample": "home",
+    "mainEntryExamples": [
+      "home",
+      "office",
+      "workshop"
+    ],
+    "drawerExamples": [
+      "home",
+      "office",
+      "workshop",
+      "vinyl",
+      "books",
+      "illustrations"
+    ],
+    "itemsPerExample": 24,
+    "logicalBuyers": 4,
+    "itemsPerBuyer": 6,
+    "currency": "PLN",
+    "examples": [
+      {
+        "id": "home",
+        "name": "Garage Sale",
+        "itemSharesTotalCents": 258000,
+        "sharedCostCents": 24000,
+        "totalCents": 282000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          85500,
+          61000,
+          75000,
+          60500
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          85000,
+          61000,
+          75000,
+          61000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 95000,
+          "ola": 70000,
+          "bartek": 85000,
+          "jan": 70000,
+          "ewa": 70000
+        },
+        "shortfallWithoutJanCents": 32000,
+        "contents": "Mixed garage-sale lot: bicycle, instruments, drill, tent, console, furniture, appliances, plant and sports equipment."
+      },
+      {
+        "id": "office",
+        "name": "Small Business Clearance",
+        "itemSharesTotalCents": 432000,
+        "sharedCostCents": 48000,
+        "totalCents": 480000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          187000,
+          127000,
+          82000,
+          84000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          183000,
+          127000,
+          82000,
+          88000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 220000,
+          "ola": 150000,
+          "bartek": 100000,
+          "jan": 100000,
+          "ewa": 100000
+        },
+        "shortfallWithoutJanCents": 10000,
+        "contents": "Fictional whole small-office asset bundle: computers, furniture, printers, networking and back-room equipment."
+      },
+      {
+        "id": "workshop",
+        "name": "Workshop Equipment",
+        "itemSharesTotalCents": 142000,
+        "sharedCostCents": 16000,
+        "totalCents": 158000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          61000,
+          28000,
+          31000,
+          38000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          62000,
+          28000,
+          31000,
+          37000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 65000,
+          "ola": 33000,
+          "bartek": 36000,
+          "jan": 43000,
+          "ewa": 43000
+        },
+        "shortfallWithoutJanCents": 24000,
+        "contents": "Power tools, hand tools, measurement equipment and accessories."
+      },
+      {
+        "id": "vinyl",
+        "name": "Second-Hand Vinyl",
+        "itemSharesTotalCents": 72000,
+        "sharedCostCents": 12000,
+        "totalCents": 84000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          18000,
+          21000,
+          22000,
+          23000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          19000,
+          21000,
+          22000,
+          22000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 20000,
+          "ola": 23000,
+          "bartek": 25000,
+          "jan": 26000,
+          "ewa": 26000
+        },
+        "shortfallWithoutJanCents": 16000
+      },
+      {
+        "id": "books",
+        "name": "Moving-Day Bookshelf",
+        "itemSharesTotalCents": 72000,
+        "sharedCostCents": 12000,
+        "totalCents": 84000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          18000,
+          21000,
+          22000,
+          23000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          19000,
+          21000,
+          22000,
+          22000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 20000,
+          "ola": 23000,
+          "bartek": 25000,
+          "jan": 26000,
+          "ewa": 26000
+        },
+        "shortfallWithoutJanCents": 16000
+      },
+      {
+        "id": "illustrations",
+        "name": "Collectible Illustrations",
+        "itemSharesTotalCents": 72000,
+        "sharedCostCents": 12000,
+        "totalCents": 84000,
+        "buyerOrderV1": [
+          "maja",
+          "ola",
+          "bartek",
+          "jan"
+        ],
+        "buyerTotalsV1Cents": [
+          18000,
+          21000,
+          22000,
+          23000
+        ],
+        "buyerOrderV2": [
+          "maja",
+          "ola",
+          "bartek",
+          "ewa"
+        ],
+        "buyerTotalsV2Cents": [
+          19000,
+          21000,
+          22000,
+          22000
+        ],
+        "buyerBudgetsCents": {
+          "maja": 20000,
+          "ola": 23000,
+          "bartek": 25000,
+          "jan": 26000,
+          "ewa": 26000
+        },
+        "shortfallWithoutJanCents": 16000
+      }
+    ],
+    "noAdditionalLiveProviderTransactionsClaimed": true,
+    "checks": [
+      {
+        "command": "npm test",
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 66,
+        "passed": 66,
+        "failed": 0,
+        "byFile": {
+          "server/domain.test.ts": 42,
+          "server/providers.test.ts": 20,
+          "server/demo-routes.test.ts": 4
+        },
+        "providerTransport": "mocked"
+      },
+      {
+        "command": "npm run typecheck",
+        "status": "PASS",
+        "exitCode": 0
+      },
+      {
+        "command": "npm run build",
+        "status": "PASS",
+        "exitCode": 0,
+        "entryBundle": "/assets/index-Nvft9VE8.js",
+        "organizerBundle": "/assets/OrganizerFlow-C-Tjk6SE.js",
+        "warning": "Existing organizer chunk exceeds 500 kB"
+      },
+      {
+        "command": "Production English UI and connection recovery browser review",
+        "status": "PASS",
+        "provider": "CUA Edge, root-authorized own-tab fallback",
+        "scope": "English-default UI, final bundle terminology, fetch recovery, cross-build lazy module retention, delivery gate, and one live English Nebius preferences smoke. Historical V2/V3 evidence preserved.",
+        "viewports": [
+          "1440x900",
+          "430x930"
+        ],
+        "allSixCompleteBrowserPurchases": false
+      },
+      {
+        "command": "Docker build and container package check",
+        "status": "NOT_REPEATED",
+        "scope": "Original illustration-only result remains historical."
+      }
+    ],
+    "publicSourcePackage": {
+      "version": "v4",
+      "status": "PACKAGED",
+      "fileCount": 78,
+      "pngCount": 35,
+      "textFileCount": 43,
+      "priorV2RetainedUnchanged": true,
+      "v3ArchiveCreated": false,
+      "contents": "Blank-credential .env.example, source, assets, docs, MIT; no private environments, data, dist, dependencies, raw evidence or session keys.",
+      "hashLocation": "Separate versioned package report and SHA-256 manifest."
+    },
+    "inventoryAndImages": "Six fictional prepared demo bundles with English names/descriptions and original generated visuals; office is a bundle example, not billing/invoice/liquidation management.",
+    "checkedAt": "2026-10-30 16:33:37 UTC",
+    "englishAiPreferences": {
+      "status": "PASS",
+      "provider": "nebius",
+      "mode": "live",
+      "httpStatus": 200,
+      "requestCount": 1,
+      "automaticRetries": 0,
+      "model": "nvidia/nemotron-3-super-120b-a12b",
+      "requestId": "cbb57fe19738d999c20e9bc866b40bc6",
+      "responseId": "chatcmpl-96042c58f89d325b",
+      "completedAt": "2026-10-30T16:31:43.247Z",
+      "latencyMs": 3975,
+      "totalTokens": 2349,
+      "preferredIds": [
+        "01",
+        "04",
+        "07",
+        "09",
+        "12",
+        "18"
+      ],
+      "alternativeIds": [],
+      "maxTotalCents": 95000,
+      "noAlternativesExplicit": true,
+      "requiresHumanConfirmation": true,
+      "proposalApplied": false,
+      "saved": false,
+      "visionRetested": false,
+      "scope": "One English Garage Sale input through the normal app UI; not general parsing accuracy."
+    },
+    "recoveryVerification": {
+      "stateGetWarningAutoCleared": true,
+      "mutationRetries": 0,
+      "mutationUncertaintyPreserved": true,
+      "readableLazyFallback": true,
+      "manualRefreshRecovered": true,
+      "automaticLazyReloads": 0,
+      "crossBuildOldLazyChunkHttpStatus": 200,
+      "crossBuildCacheDisabled": true,
+      "crossBuildFromDiskCache": false,
+      "retentionScope": "In-place rebuild in the same output directory; not clean hosted deployment.",
+      "historicalUserIncidentCauseConfirmed": false
+    },
+    "deliveryGateVerification": {
+      "englishGuidance": true,
+      "reachedLocalSimulatedAuthorization": true,
+      "approvalClicked": false,
+      "realPayPalActions": 0
+    },
+    "sandboxPreservationQA": {
+      "readOnly": true,
+      "stateBytesIdentical": true,
+      "revision": 97,
+      "planStatus": "paid",
+      "completedCaptures": 4,
+      "totalCapturedCents": 84000,
+      "newOrdersOrCaptures": 0,
+      "externalProviderRecheckPerformed": false
+    }
+  }
+}

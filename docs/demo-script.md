@@ -1,0 +1,30 @@
+# 90-second demonstration
+
+Record a real working build with English narration or English subtitles. Keep the mode label visible. For the main submission, use verified Nebius responses and PayPal Sandbox operations. Trim waiting and repeated buyer steps; do not replace provider results with rehearsal scenarios. Keep secrets, passwords and personal addresses out of the recording.
+
+Recording readiness on 30 October 2026: live Nebius text preferences, a live vision response from one supplied item image and the Sandbox purchase through normal application API calls with real browser checkout approvals are verified. Four authorizations led to exact captures of PLN 180, 210, 220 and 230; independent provider readbacks confirmed all four `COMPLETED`, and packing unlocked. Four separate application sessions used one test payer account. No package was marked packed or shipped. The complete buyer UI and payment-return walkthrough still needs recording and verification; see the [verification record](verification.md). A public demo recording is pending. V4 also verified one live English Garage Sale preference input through the UI (six requested items, PLN 950 cap, no alternatives). Its proposal was not applied or saved and vision was not retested. Keep this supplementary English rehearsal scene distinct from the original PLN 840 Sandbox main path below.
+
+The welcome screen now offers **Garage Sale** (a mixed garage-sale lot, PLN 2820), **Small Business Clearance** (a fictional office-asset bundle, PLN 4800) and **Workshop Equipment** (PLN 1580). The drawer retains vinyl, books and the original illustrations. A brief rehearsal-only opening or closing shot can show the mixed garage lot, office assets offered together before a lease ends and workshop equipment. All have 24 items, four buyers and six items each, with their own images, descriptions, condition notes, prices and budgets. Present the office example as the same bundle-purchase flow; do not imply invoice, billing or liquidation-management features. Keep the rehearsal label visible. The live AI/PayPal proof and the PLN 840 main path below belong to the original illustration example; the added examples do not establish additional provider transactions. Selecting another example replaces the rehearsal's saved choices, consents, simulated payments and packing, and is unavailable in Sandbox.
+
+| Time | Screen and action | Narration |
+| --- | --- | --- |
+| 00–10 | Original Sandbox example overview: 24 items, four places, PLN 840 total. Optional quick, visibly separate rehearsal preview of the mixed garage-sale bundle. | “A seller offers a whole bundle, while four people want different parts. LOTSPLIT gives every item an owner and every buyer an exact price before payment.” |
+| 10–25 | Organizer: upload `public/assets/items/01.png`, inspect its live, unconfirmed AI proposal, then cut to human review of the prepared 24-item catalog in AG Grid. Caption: “Live AI: one item photo. Demo catalog prepared separately.” Show the response model; compress provider waiting. | “Nebius reads this one item photo and proposes an entry for review. The 24-item demo catalog is prepared separately. The organizer confirms every item and its fixed price share.” |
+| 25–36 | Buyer Maja: six preferred items, one explicit alternative, PLN 200 total cap. Show the reviewed live text-preference proposal. | “Maja chooses six items, permits an alternative, and caps her total at 200 złoty. AI preference suggestions still need her confirmation.” |
+| 36–48 | Organizer computes and sends the complete plan; Maja reviews her PLN 180 terms. Cut across the four actual consents. | “The solver covers all 24 items for 840 złoty. Maja pays 180, below her limit. Every buyer accepts exact items and price.” |
+| 48–68 | Sandbox approval page and return to LOTSPLIT. Show all four authorization results, then organizer capture and completed provider statuses. | “Consent is not payment. Each buyer separately approves a PayPal Sandbox authorization. With all four valid, the organizer captures their exact amounts. These are test transactions; separate payments do not create escrow.” |
+| 68–78 | Packing view appears after four completed captures; show the six items in one package. | “Packing unlocks after four completed captures. The organizer checks the physical items, then marks packing and shipment manually.” |
+| 78–90 | Separate, clearly labeled rehearsal tab: unknown Ola result, Maja complete, later captures unstarted; packing blocked. End on the final public source and demo links. | “This is a labeled rehearsal of an unknown result. Later captures stop, and packing stays locked while the existing payment is checked.” |
+
+The final ten seconds demonstrate application recovery behavior using **rehearsal**, not a claimed PayPal outage. If verified Sandbox failure footage exists, use it with its actual provider status instead. A pending refund must remain described as pending.
+
+Before recording, prepare:
+
+- A fresh collection session for the main path and a separate rehearsal data directory for the failure clip.
+- Four independent browser profiles or different browsers for the buyers, so one role does not overwrite another's session. Ordinary tabs share a login.
+- Sandbox test buyer login(s) and the Sandbox business merchant app; complete genuine buyer approval for every order. Do not imply four distinct PayPal accounts unless the recording uses them.
+- The verified single-item image used for AI extraction. Show its actual proposal and distinguish it from the separately prepared catalog.
+- An unexpired collection reservation. Fresh data or an explicit rehearsal scenario reset starts a 48-hour window; an existing saved deadline does not move on reload or restart.
+- A final pass over the exact capture and refund statuses displayed. A seeded success screen is never provider evidence.
+
+If credentials or provider access are unavailable, record an explicitly labeled rehearsal for internal review. Keep the final Sandbox evidence and submission status pending.
