@@ -24,7 +24,7 @@ async function stop(child: ChildProcess) {
   }
 }
 
-async function isolatedServer(overrides: Record<string, string> = {}) {
+async function isolatedServer(overrides: Record<string, string> = {}, mockPayPalWebhook = false) {
   const directory = await mkdtemp(join(tmpdir(), 'lotsplit-hosting-safety-'));
   let child: ChildProcess | undefined;
   async function dispose() {
@@ -37,6 +37,19 @@ async function isolatedServer(overrides: Record<string, string> = {}) {
   try {
     await mkdir(join(directory, 'dist', 'client'), { recursive: true });
     await writeFile(join(directory, 'dist', 'client', 'index.html'), '<!doctype html><title>Private test build</title>');
+    let entryPath = serverPath;
+    if (mockPayPalWebhook) {
+      entryPath = join(directory, 'mock-webhook-entry.mjs');
+      await writeFile(entryPath, `globalThis.fetch = async (input, init = {}) => {
+        const url = String(input);
+        if (url.endsWith('/v1/oauth2/token')) return Response.json({ access_token: 'mock-token', expires_in: 3600 });
+        if (url.endsWith('/v1/notifications/verify-webhook-signature')) {
+          const body = JSON.parse(String(init.body));
+          return Response.json({ verification_status: body.webhook_id === 'WH-MOCK' && body.transmission_sig === 'mock-valid-signature' ? 'SUCCESS' : 'FAILURE' });
+        }
+        throw new Error('Unexpected external request in isolated test');
+      }; await import(${JSON.stringify(pathToFileURL(serverPath).href)});`);
+    }
     const reservation = createServer();
     await new Promise<void>((done, fail) => { reservation.once('error', fail); reservation.listen(0, '127.0.0.1', done); });
     const address = reservation.address();
@@ -44,13 +57,14 @@ async function isolatedServer(overrides: Record<string, string> = {}) {
     const port = address.port;
     await new Promise<void>((done, fail) => reservation.close(error => error ? fail(error) : done()));
     const origin = `http://127.0.0.1:${port}`;
-    child = spawn(process.execPath, ['--import', pathToFileURL(require.resolve('tsx')).href, serverPath], {
+    child = spawn(process.execPath, ['--import', pathToFileURL(require.resolve('tsx')).href, entryPath], {
       cwd: directory,
       env: { ...process.env, NODE_OPTIONS: '', NODE_ENV: 'production', APP_MODE: 'rehearsal',
         HOST: '127.0.0.1', PORT: String(port), APP_ORIGIN: origin, RENDER_EXTERNAL_URL: '',
         DATA_DIR: join(directory, 'data'), NEBIUS_ENV_FILE: '', NEBIUS_API_KEY: 'dummy-hosting-test-key',
         NEBIUS_BASE_URL: 'https://api.tokenfactory.nebius.com/v1', NEBIUS_TEXT_MODEL: '', NEBIUS_MODEL: '', NEBIUS_VISION_MODEL: '',
         PAYPAL_CLIENT_ID: '', PAYPAL_CLIENT_SECRET: '', PAYPAL_WEBHOOK_ID: '', ORGANIZER_ACCESS_TOKEN: '',
+        PAYPAL_ENVIRONMENT: 'sandbox', PAYPAL_MODE: 'sandbox', PAYPAL_BASE_URL: 'https://api-m.sandbox.paypal.com',
         SESSION_COOKIE_NAME: 'lotsplit_session', AI_DAILY_REQUEST_LIMIT: '1',
         JUDGE_ACCESS_USERNAME: '', JUDGE_ACCESS_PASSWORD: '', ...overrides },
       stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
@@ -108,6 +122,37 @@ test('private judging gate covers pages, assets and API while health reveals no 
     assert.equal(state.status, 200);
     assert.equal((await state.json()).authenticated, false, 'Basic gate must not grant an application role');
   } finally { await server.dispose(); }
+});
+
+test('only the exact webhook POST bypasses private judging and still requires its configured PayPal signature', async () => {
+  const headers = { 'content-type': 'application/json', 'paypal-auth-algo': 'SHA256withRSA',
+    'paypal-cert-url': 'https://api.sandbox.paypal.com/v1/notifications/certs/MOCK', 'paypal-transmission-id': 'test-transmission',
+    'paypal-transmission-time': '2026-10-30T12:00:00Z', 'paypal-transmission-sig': 'mock-valid-signature' };
+  for (const webhookId of ['WH-MOCK', '']) {
+    const server = await isolatedServer({ APP_MODE: 'sandbox', PAYPAL_CLIENT_ID: 'mock-client', PAYPAL_CLIENT_SECRET: 'mock-secret',
+      PAYPAL_WEBHOOK_ID: webhookId, ORGANIZER_ACCESS_TOKEN: 'mock-organizer-token',
+      JUDGE_ACCESS_USERNAME: 'jury', JUDGE_ACCESS_PASSWORD: 'hosting-test-password' }, true);
+    try {
+      await server.ready();
+      const post = (requestHeaders: Record<string, string>, path = '/api/payments/webhook') => fetch(`${server.origin}${path}`, {
+        method: 'POST', headers: requestHeaders, body: JSON.stringify({ id: 'WH-TEST-EVENT', event_type: 'PAYMENT.AUTHORIZATION.CREATED', resource: { id: 'AUTH-UNRELATED' } }),
+      });
+      const valid = await post(headers);
+      if (webhookId) { assert.equal(valid.status, 200); assert.deepEqual(await valid.json(), { received: true }); }
+      else { assert.ok(valid.status >= 400); assert.notEqual((await valid.json()).received, true); }
+      if (webhookId) {
+        const invalid = await post({ ...headers, 'paypal-transmission-sig': 'mock-invalid-signature' });
+        assert.equal(invalid.status, 401); assert.equal((await invalid.json()).code, 'WEBHOOK_SIGNATURE');
+        const missing = await post({ 'content-type': 'application/json' });
+        assert.equal(missing.status, 401); assert.equal((await missing.json()).code, 'WEBHOOK_SIGNATURE');
+      }
+      for (const path of ['/api/payments/webhook/', '/api/payments/webhook-extra', '/api/state']) {
+        const denied = await post(headers, path); assert.equal(denied.status, 401); assert.equal((await denied.json()).code, 'JUDGE_ACCESS_REQUIRED');
+      }
+      const deniedGet = await fetch(`${server.origin}/api/payments/webhook`);
+      assert.equal(deniedGet.status, 401); assert.equal((await deniedGet.json()).code, 'JUDGE_ACCESS_REQUIRED');
+    } finally { await server.dispose(); }
+  }
 });
 
 test('gate is off by default and unauthenticated AI requests cannot exhaust the authenticated allowance', async () => {

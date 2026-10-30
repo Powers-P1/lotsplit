@@ -177,6 +177,13 @@ export interface OrganizerPlanView {
   failureReason?: string;
   invalidationReason?: string;
 }
+export interface PriorPlanPaymentBlocker {
+  planId: string;
+  planVersion: number;
+  buyerId: BuyerId;
+  buyerName: string;
+  operations: PaymentOperation[];
+}
 export interface BuyerPlanView {
   id: string;
   version: number;
@@ -226,6 +233,7 @@ export interface OrganizerView extends ViewBase {
   collection: Collection;
   participants: Participant[];
   plan?: OrganizerPlanView;
+  priorPaymentBlockers: PriorPlanPaymentBlocker[];
   noSolution?: NoSolution;
   invitations: { buyerId: BuyerId; name: string; url: string; active: boolean }[];
   packing: PackingPackage[];

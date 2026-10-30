@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type {
   AllocationPlan, AppMode, AppView, Assignment, BuyerId, BuyerPayment, Collection, CollectionItem,
   Consent, DeliveryAddress, Gates, NoSolution, OperationKind, OperationStatus, PackingPackage,
-  Participant, PaymentOperation, PaymentView, Preferences, RehearsalScenario, UserId,
+  Participant, PaymentOperation, PaymentView, Preferences, PriorPlanPaymentBlocker, RehearsalScenario, UserId,
 } from '../shared/types.js';
 import { createCollection, createParticipants, DEMO_ACCESS, getDemoDefaults, sourceForMode, userForId } from './seed.js';
 import { DEFAULT_DEMO_COLLECTION_ID, isDemoCollectionId, type DemoCollectionId } from '../shared/demo-collections.js';
@@ -114,57 +114,95 @@ export function solveAllocation(collection: Collection, participants: Participan
     return no('MISSING_PREFERENCES', 'Waiting for six preferred items, a budget limit, and explicit confirmation of alternatives from each buyer.');
   if (limitsTotalCents < collection.totalCents) return no('INSUFFICIENT_BUDGET', 'No complete split fits the saved budgets. This arrangement cannot proceed with the purchase.');
   const cost = collection.sharedCostCents / collection.buyerCount;
-  type Candidate = { ids: string[]; mask: number; base: number; alternatives: string[] };
-  const candidates = buyers.map(buyer => {
+  // Candidate enumeration can retain over half a million combinations. Keep only
+  // numeric facts here; materialize item arrays for the four final assignments.
+  type Candidate = { mask: number; base: number; alternativeCount: number };
+  const completeMask = (1 << collection.items.length) - 1;
+  const entries = collection.items.map((item, index) => ({ ...item, bit: 1 << index }));
+  const orderedEntries = [...entries].sort((a, b) => a.id.localeCompare(b.id));
+  const accepted = buyers.map(buyer => new Set([...buyer.preferences!.preferredItemIds, ...buyer.preferences!.alternativeItemIds]));
+  const preferredSets = buyers.map(buyer => new Set(buyer.preferences!.preferredItemIds));
+  const bitCount = (value: number) => { let count = 0; for (; value; value &= value - 1) count++; return count; };
+  // Every subset of buyers needs enough distinct acceptable items for all its places.
+  const canCover = (masks: number[]) => {
+    for (let subset = 1; subset < 1 << masks.length; subset++) {
+      let union = 0; let count = 0;
+      for (let index = 0; index < masks.length; index++) if (subset & (1 << index)) { union |= masks[index]; count++; }
+      if (bitCount(union) < count * collection.itemsPerBuyer) return false;
+    }
+    return true;
+  };
+  const noAllocation = () => no('NO_ALLOCATION', 'No complete split of acceptable items fits the saved budgets.');
+  if (!canCover(accepted.map(ids => entries.reduce((mask, item) => ids.has(item.id) ? mask | item.bit : mask, 0)))) return noAllocation();
+  const assignments = (allocation: Candidate[]): Assignment[] => buyers.map((buyer, index) => {
+    const candidate = allocation[index]; const totalCents = candidate.base + cost;
+    const itemIds = orderedEntries.filter(item => candidate.mask & item.bit).map(item => item.id);
+    return { buyerId: buyer.id, itemIds, baseCents: candidate.base, sharedCostCents: cost,
+      totalCents, alternativeItemIds: itemIds.filter(id => !preferredSets[index].has(id)), termsDigest: termsDigest(collection, buyer.id, itemIds, totalCents) };
+  });
+  const preferredOnly = buyers.map((_, index) => {
+    const items = entries.filter(item => preferredSets[index].has(item.id));
+    return { mask: items.reduce((mask, item) => mask | item.bit, 0), base: items.reduce((sum, item) => sum + item.shareCents, 0), alternativeCount: 0 };
+  });
+  if (preferredOnly.every((candidate, index) => bitCount(candidate.mask) === collection.itemsPerBuyer && candidate.base + cost <= buyers[index].preferences!.budgetCents) &&
+    preferredOnly.reduce((mask, candidate) => mask | candidate.mask, 0) === completeMask) return assignments(preferredOnly);
+  // A limit means "not proved within this request", never "no allocation exists".
+  // Keep this synchronous search below one second rather than blocking every API request.
+  const deadline = performance.now() + 750;
+  let work = 0;
+  const checkWork = () => {
+    if (++work > 2_000_000 || (work % 512 === 0 && performance.now() >= deadline))
+      throw new DomainError('SOLVER_LIMIT', 'This split needs more searching than this demo can safely perform. Narrow the accepted alternatives or adjust budgets, then calculate again. No new plan was created.', 409);
+  };
+  const candidates = buyers.map((buyer, buyerIndex) => {
     const prefs = buyer.preferences!;
-    const accepted = new Set([...prefs.preferredItemIds, ...prefs.alternativeItemIds]);
-    const preferred = new Set(prefs.preferredItemIds);
-    const available = collection.items.map((item, index) => ({ ...item, bit: 1 << index })).filter(item => accepted.has(item.id));
-    const result: Candidate[] = [];
-    function choose(start: number, ids: string[], alternatives: string[], mask: number, base: number) {
+    const preferred = preferredSets[buyerIndex];
+    const available = orderedEntries.filter(item => accepted[buyerIndex].has(item.id));
+    const groups: Candidate[][] = Array.from({ length: collection.itemsPerBuyer + 1 }, () => []);
+    function choose(start: number, count: number, mask: number, base: number, alternativeCount: number) {
+      checkWork();
       if (base + cost > prefs.budgetCents) return;
-      if (ids.length === collection.itemsPerBuyer) { result.push({ ids, alternatives, mask, base }); return; }
-      const needed = collection.itemsPerBuyer - ids.length;
+      if (count === collection.itemsPerBuyer) { groups[alternativeCount].push({ mask, base, alternativeCount }); return; }
+      const needed = collection.itemsPerBuyer - count;
       for (let index = start; index <= available.length - needed; index++) {
         const item = available[index];
-        choose(index + 1, [...ids, item.id], preferred.has(item.id) ? alternatives : [...alternatives, item.id], mask | item.bit, base + item.shareCents);
+        choose(index + 1, count + 1, mask | item.bit, base + item.shareCents, alternativeCount + Number(!preferred.has(item.id)));
       }
     }
-    choose(0, [], [], 0, 0);
-    result.sort((a, b) => a.alternatives.length - b.alternatives.length || a.ids.join(',').localeCompare(b.ids.join(',')));
-    return result;
+    choose(0, 0, 0, 0, 0);
+    return groups.flat();
   });
-  if (candidates.some(c => !c.length)) return no('NO_ALLOCATION', 'No complete split of acceptable items fits the saved budgets.');
+  const candidateMasks = candidates.map(list => list.reduce((mask, candidate) => mask | candidate.mask, 0));
+  if (candidates.some(c => !c.length) || !canCover(candidateMasks)) return noAllocation();
   const order = buyers.map((_, i) => i).sort((a, b) => candidates[a].length - candidates[b].length || a - b);
+  const remainingCoverage = order.map((_, depth) => order.slice(depth).reduce((mask, index) => mask | candidateMasks[index], 0));
+  const searched = buyers.map(() => new Map<number, number>());
   const preferredByAnyone = new Set(buyers.flatMap(p => p.preferences!.preferredItemIds));
   const lowerBound = collection.items.filter(item => !preferredByAnyone.has(item.id)).length;
   let best: Candidate[] | undefined;
   let bestAlternatives = Infinity;
   const chosen: Candidate[] = [];
   function search(depth: number, mask: number, altCount: number): boolean {
+    checkWork();
     if (altCount >= bestAlternatives) return false;
     if (depth === order.length) {
-      if (mask !== (1 << collection.items.length) - 1) return false;
+      if (mask !== completeMask) return false;
       best = [...chosen]; bestAlternatives = altCount;
       return bestAlternatives === lowerBound;
     }
+    if ((mask | remainingCoverage[depth]) !== completeMask || (searched[depth].get(mask) ?? Infinity) <= altCount) return false;
+    searched[depth].set(mask, altCount);
     const index = order[depth];
     for (const candidate of candidates[index]) {
-      if (candidate.mask & mask || altCount + candidate.alternatives.length >= bestAlternatives) continue;
+      checkWork();
+      if (candidate.mask & mask || altCount + candidate.alternativeCount >= bestAlternatives) continue;
       chosen[index] = candidate;
-      if (search(depth + 1, mask | candidate.mask, altCount + candidate.alternatives.length)) return true;
+      if (search(depth + 1, mask | candidate.mask, altCount + candidate.alternativeCount)) return true;
     }
     return false;
   }
   search(0, 0, 0);
-  if (!best) return no('NO_ALLOCATION', 'No complete split of acceptable items fits the saved budgets.');
-  const allocation = best as Candidate[];
-  return buyers.map((buyer, index) => {
-    const candidate = allocation[index];
-    const totalCents = candidate.base + cost;
-    return { buyerId: buyer.id, itemIds: candidate.ids, baseCents: candidate.base, sharedCostCents: cost,
-      totalCents, alternativeItemIds: candidate.alternatives, termsDigest: termsDigest(collection, buyer.id, candidate.ids, totalCents) };
-  });
+  return best ? assignments(best) : noAllocation();
 }
 
 export class LotSplitEngine {
@@ -231,15 +269,20 @@ export class LotSplitEngine {
       plan.assignments.every(a => active.some(p => p.id === a.buyerId) &&
         a.termsDigest === termsDigest(state.collection, a.buyerId, a.itemIds, a.totalCents));
   }
-  private priorPaymentBlocked(state: DomainState, currentId: string) {
-    return state.plans.filter(p => p.id !== currentId).some(plan => plan.assignments.some(a => {
+  private priorPaymentBlockers(state: DomainState, currentId: string): PriorPlanPaymentBlocker[] {
+    return state.plans.filter(p => p.id !== currentId).flatMap(plan => plan.assignments.flatMap(a => {
       const payment = this.payment(state, plan, a.buyerId);
-      if (isUnknown(payment.order) || isUnknown(payment.authorization) || isUnknown(payment.capture) || isUnknown(payment.void) || isUnknown(payment.refund)) return true;
-      if (payment.authorization?.status === 'AUTHORIZED' && payment.void?.status !== 'VOIDED' && payment.capture?.status !== 'COMPLETED') return true;
-      if (payment.capture?.status === 'COMPLETED' && payment.refund?.status !== 'COMPLETED') return true;
-      return payment.order?.status === 'CREATED' && !payment.authorization;
+      const operations = new Map<string, PaymentOperation>();
+      const add = (operation: PaymentOperation | undefined) => { if (operation) operations.set(operation.id, operation); };
+      for (const operation of Object.values(payment)) if (isUnknown(operation)) add(operation);
+      if (payment.authorization?.status === 'AUTHORIZED' && payment.void?.status !== 'VOIDED' && payment.capture?.status !== 'COMPLETED') add(payment.void ?? payment.authorization);
+      if (payment.capture?.status === 'COMPLETED' && payment.refund?.status !== 'COMPLETED') add(payment.refund ?? payment.capture);
+      if (payment.order?.status === 'CREATED' && !payment.authorization) add(payment.order);
+      return operations.size ? [{ planId: plan.id, planVersion: plan.version, buyerId: a.buyerId,
+        buyerName: this.participant(state, a.buyerId).name, operations: [...operations.values()] }] : [];
     }));
   }
+  private priorPaymentBlocked(state: DomainState, currentId: string) { return this.priorPaymentBlockers(state, currentId).length > 0; }
   private gates(state: DomainState, buyerId?: BuyerId): Gates {
     const collection = state.collection; const plan = this.current(state); const valid = plan && plan.status !== 'invalidated';
     const active = state.participants.filter(p => p.active); const allAgreed = this.allAgreements(plan);
@@ -306,7 +349,8 @@ export class LotSplitEngine {
           payment: this.payment(state, plan, a.buyerId), previous: previousFor(a.buyerId) })) } : undefined,
       noSolution: state.noSolution, invitations: state.participants.map(p => ({ buyerId: p.id, name: p.name,
         url: `/invite/${state.mode === 'rehearsal' ? `demo-${p.id}` : state.invitationTokens[p.id] ?? ''}`, active: p.active })),
-      packing: gates.packing.allowed ? state.packing : [], rehearsalCaptureOutcome: state.rehearsalCaptureOutcome });
+      packing: gates.packing.allowed ? state.packing : [], priorPaymentBlockers: plan ? this.priorPaymentBlockers(state, plan.id) : [],
+      rehearsalCaptureOutcome: state.rehearsalCaptureOutcome });
     const participant = this.participant(state, userId); const assignment = plan?.assignments.find(a => a.buyerId === userId);
     const { items, ...collection } = state.collection;
     const shipment = state.packing.find(p => p.buyerId === userId);

@@ -24,3 +24,8 @@
 @media(min-width:801px){.organizer-main{padding-top:34px}.organizer-main>.page-heading{padding:0 18px;margin-bottom:27px}.organizer-main>.plan-context{padding-left:18px;margin-bottom:22px}.allocation-detail>.item-grid{grid-template-columns:repeat(6,98px);gap:24px}.allocation-total{padding:14px 18px;font-size:16px}}
 @media(max-width:420px){.buyer-application .app-header{height:62px}}
 @media(min-width:1500px){.organizer-main{max-width:1350px}.organizer-main h1{font-size:50px}.organizer-application .header-inner{padding-left:64px;padding-right:64px}}
+
+/* Keep participant preferences readable on a phone. */
+@media (max-width: 760px) {
+  .expanded-preferences .item-grid-compact { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

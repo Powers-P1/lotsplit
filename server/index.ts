@@ -69,7 +69,8 @@ app.use((_req, res, next) => {
   next();
 });
 app.use((req, res, next) => {
-  if (!privateJudging || (req.path === '/api/health' && ['GET', 'HEAD'].includes(req.method))) return next();
+  if (!privateJudging || (req.path === '/api/health' && ['GET', 'HEAD'].includes(req.method)) ||
+    (req.method === 'POST' && req.path === '/api/payments/webhook')) return next();
   const authorization = req.headers.authorization;
   const match = authorization && /^Basic ([A-Za-z0-9+/]+={0,2})$/i.exec(authorization);
   if (match && timingSafeEqual(createHash('sha256').update(Buffer.from(match[1], 'base64')).digest(), expectedJudgeCredentials)) return next();

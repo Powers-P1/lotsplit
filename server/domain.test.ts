@@ -192,6 +192,128 @@ test('solver covers all 24 items, fixed prices total 840 PLN, and increasing a l
   } finally { store.close(); }
 });
 
+test('broad alternatives reject an uncovered item and a buyer-subset bottleneck before enumerating combinations', () => {
+  for (const bottleneck of ['uncovered-item', 'two-buyers'] as const) {
+    const state = createInitialState('rehearsal', new Date(NOW), 'illustrations');
+    readyInput(state.collection, state.participants);
+    const ids = state.collection.items.map(item => item.id);
+    for (const [index, buyer] of state.participants.filter(buyer => buyer.active).entries()) {
+      const accepted = bottleneck === 'uncovered-item' ? ids.slice(0, 23) : index < 2 ? ids.slice(0, 11) : ids;
+      buyer.preferences = { preferredItemIds: accepted.slice(0, 6), alternativeItemIds: accepted.slice(6), budgetCents: 100000000,
+        alternativesConfirmed: true, updatedAt: NOW, submittedAt: NOW };
+    }
+    const started = performance.now();
+    const result = solveAllocation(state.collection, state.participants);
+    assert.ok(!Array.isArray(result)); assert.equal(result.code, 'NO_ALLOCATION');
+    assert.ok(performance.now() - started < 1500, 'An obvious coverage failure must not block the server');
+  }
+});
+
+test('broad feasible alternatives preserve the exact zero-alternative optimum and fixed item shares', () => {
+  const state = createInitialState('rehearsal', new Date(NOW), 'illustrations');
+  readyInput(state.collection, state.participants);
+  const ids = state.collection.items.map(item => item.id);
+  for (const [index, buyer] of state.participants.filter(buyer => buyer.active).entries()) {
+    const preferredItemIds = ids.slice(index * 6, index * 6 + 6);
+    buyer.preferences = { preferredItemIds, alternativeItemIds: ids.filter(id => !preferredItemIds.includes(id)), budgetCents: 100000000,
+      alternativesConfirmed: true, updatedAt: NOW, submittedAt: NOW };
+  }
+  const shares = state.collection.items.map(item => item.shareCents);
+  const result = solveAllocation(state.collection, state.participants);
+  assert.ok(Array.isArray(result)); assert.equal(result.flatMap(assignment => assignment.itemIds).length, 24);
+  assert.equal(new Set(result.flatMap(assignment => assignment.itemIds)).size, 24);
+  assert.equal(result.reduce((sum, assignment) => sum + assignment.totalCents, 0), state.collection.totalCents);
+  for (const assignment of result) {
+    assert.deepEqual(assignment.alternativeItemIds, []);
+    assert.deepEqual(assignment.itemIds, state.participants.find(buyer => buyer.id === assignment.buyerId)!.preferences!.preferredItemIds);
+  }
+  assert.deepEqual(state.collection.items.map(item => item.shareCents), shares);
+});
+
+test('four buyers preferring the same six items get a complete optimal split with broad alternatives', () => {
+  const state = createInitialState('rehearsal', new Date(NOW), 'illustrations');
+  readyInput(state.collection, state.participants);
+  const ids = state.collection.items.map(item => item.id);
+  for (const buyer of state.participants.filter(buyer => buyer.active)) buyer.preferences = {
+    preferredItemIds: ids.slice(0, 6), alternativeItemIds: ids.slice(6), budgetCents: 100000000,
+    alternativesConfirmed: true, updatedAt: NOW, submittedAt: NOW,
+  };
+  const result = solveAllocation(state.collection, state.participants);
+  assert.ok(Array.isArray(result));
+  assert.equal(result.flatMap(assignment => assignment.itemIds).length, 24);
+  assert.equal(new Set(result.flatMap(assignment => assignment.itemIds)).size, 24);
+  assert.equal(result.reduce((sum, assignment) => sum + assignment.alternativeItemIds.length, 0), 18,
+    'Only six items are preferred by anybody, so eighteen alternatives is the proven minimum');
+  assert.equal(result.reduce((sum, assignment) => sum + assignment.totalCents, 0), 84000);
+  for (const assignment of result) {
+    assert.equal(assignment.itemIds.length, 6);
+    assert.deepEqual(assignment.itemIds, [...assignment.itemIds].sort());
+    assert.deepEqual(assignment.alternativeItemIds, assignment.itemIds.filter(id => !ids.slice(0, 6).includes(id)));
+    assert.equal(assignment.termsDigest, termsDigest(state.collection, assignment.buyerId, assignment.itemIds, assignment.totalCents));
+  }
+});
+
+test('exact alternative minimization matches an independent item-by-item oracle under individual budgets', () => {
+  for (const seed of [0, 1, 2]) {
+    const state = createInitialState('rehearsal', new Date(NOW), 'illustrations');
+    readyInput(state.collection, state.participants);
+    const buyers = state.participants.filter(buyer => buyer.active);
+    const shared = state.collection.items.slice(16);
+    state.collection.sharedCostCents = 12;
+    for (const [index, item] of state.collection.items.entries()) item.shareCents = (index * 13 + 7) % 49 + 1;
+    state.collection.collectionPriceCents = state.collection.items.reduce((sum, item) => sum + item.shareCents, 0);
+    state.collection.totalCents = state.collection.collectionPriceCents + state.collection.sharedCostCents;
+    const fixedCosts: number[] = [];
+    for (const [index, buyer] of buyers.entries()) {
+      const fixed = state.collection.items.slice(index * 4, index * 4 + 4);
+      fixedCosts[index] = fixed.reduce((sum, item) => sum + item.shareCents, 0) + 3;
+      const wanted = [shared[(seed + index) % 8].id, shared[(seed + index + 1) % 8].id];
+      buyer.preferences = { preferredItemIds: [...fixed.map(item => item.id), ...wanted],
+        alternativeItemIds: shared.filter(item => !wanted.includes(item.id)).map(item => item.id), budgetCents: fixedCosts[index] + 45 + seed * 25,
+        alternativesConfirmed: true, updatedAt: NOW, submittedAt: NOW };
+    }
+    let optimum = Infinity; const counts = [0, 0, 0, 0]; const totals = [...fixedCosts];
+    function assignItem(index: number, alternatives: number) {
+      if (index === shared.length) { if (counts.every(count => count === 2)) optimum = Math.min(optimum, alternatives); return; }
+      const item = shared[index];
+      for (const [buyerIndex, buyer] of buyers.entries()) {
+        if (counts[buyerIndex] === 2 || totals[buyerIndex] + item.shareCents > buyer.preferences!.budgetCents) continue;
+        counts[buyerIndex]++; totals[buyerIndex] += item.shareCents;
+        assignItem(index + 1, alternatives + Number(!buyer.preferences!.preferredItemIds.includes(item.id)));
+        counts[buyerIndex]--; totals[buyerIndex] -= item.shareCents;
+      }
+    }
+    assignItem(0, 0);
+    const result = solveAllocation(state.collection, state.participants);
+    if (!Number.isFinite(optimum)) assert.ok(!Array.isArray(result));
+    else {
+      assert.ok(Array.isArray(result)); assert.equal(result.reduce((sum, assignment) => sum + assignment.alternativeItemIds.length, 0), optimum);
+      for (const assignment of result) assert.ok(assignment.totalCents <= buyers.find(buyer => buyer.id === assignment.buyerId)!.preferences!.budgetCents);
+    }
+  }
+});
+
+test('bounded exact search reports an undecided limit and leaves the saved collection unchanged', () => {
+  const { store, engine } = fixture();
+  try {
+    const state = engine.snapshot(); readyInput(state.collection, state.participants);
+    // All shares are even, but a complete split would require four exact odd totals.
+    // Every item fits some six-item candidate, so simple item-coverage checks cannot decide it.
+    for (const [index, item] of state.collection.items.entries()) item.shareCents = index < 12 ? 2 : index < 23 ? 8 : 4;
+    state.collection.collectionPriceCents = 116; state.collection.sharedCostCents = 0; state.collection.totalCents = 116;
+    const ids = state.collection.items.map(item => item.id);
+    for (const buyer of state.participants.filter(buyer => buyer.active)) buyer.preferences = {
+      preferredItemIds: ids.slice(0, 6), alternativeItemIds: ids.slice(6), budgetCents: 29,
+      alternativesConfirmed: true, updatedAt: NOW, submittedAt: NOW,
+    };
+    const revision = state.revision; state.revision++; store.save(state, revision);
+    const before = engine.snapshot(); const started = performance.now();
+    assert.throws(() => engine.solve('kasia'), hasCode('SOLVER_LIMIT'));
+    assert.ok(performance.now() - started < 2000, 'An undecided search must return control promptly');
+    assert.deepEqual(engine.snapshot(), before, 'A limit must neither create a plan nor claim that no allocation exists');
+  } finally { store.close(); }
+});
+
 test('catalog shares require individual confirmations and sum; shares lock before limits are collected', async () => {
   const { engine, store } = fixture();
   try {
@@ -358,6 +480,53 @@ test('prior authorizations are voided rather than silently reused by a new plan'
     await engine.reconcile('kasia'); const order = await engine.authorize('maja', plan.id);
     assert.equal(engine.snapshot().operations[order.operationId].planId, plan.id); assert.notEqual(plan.id, oldId);
   } finally { store.close(); }
+});
+
+test('organizer can settle only unresolved prior-plan blockers after v2 without exposing them to buyers', async () => {
+  for (const initialStatus of ['FAILED', 'PENDING'] as const) {
+    let released = false; let voidRequests = 0; let authorizationReads = 0;
+    const provider = providerStub({
+      async voidAuthorization(id) {
+        voidRequests++;
+        if (!released && initialStatus === 'FAILED') throw new PayPalProviderError('UNPROCESSABLE_ENTITY', 'Confirmed mock void failure', false, 422);
+        return { providerId: id, status: released ? 'VOIDED' : 'PENDING' };
+      },
+      async getAuthorization(id) { authorizationReads++; return { providerId: id, status: 'VOIDED' }; },
+    });
+    const store = new SqliteStore<DomainState>(':memory:');
+    const engine = new LotSplitEngine(store, { mode: 'sandbox', now: () => new Date(NOW), paymentProvider: provider });
+    try {
+      const oldPlanId = seedSandboxReady(engine);
+      engine.savePreferences('maja', DEMO_DEFAULTS.maja); await engine.processPendingCompensation();
+      engine.saveAlternatives('maja', { alternativeItemIds: DEMO_DEFAULTS.maja.alternativeItemIds, confirmed: true });
+      engine.solve('kasia'); const next = planOf(engine); engine.sendPlan('kasia', next.id);
+      const view = engine.view('kasia'); assert.ok(view.authenticated && view.role === 'organizer');
+      assert.equal(view.plan?.id, next.id); assert.equal(view.gates.authorize.allowed, false);
+      assert.equal(view.priorPaymentBlockers.length, 4);
+      const exposed = view.priorPaymentBlockers.flatMap(blocker => {
+        assert.equal(blocker.planId, oldPlanId); assert.equal(blocker.planVersion, 1);
+        assert.equal(blocker.operations.length, 1);
+        return blocker.operations;
+      });
+      assert.ok(exposed.every(operation => operation.kind === 'void' && operation.status === initialStatus));
+      const buyer = engine.view('maja');
+      assert.ok(buyer.authenticated && buyer.role === 'buyer'); assert.equal(Object.hasOwn(buyer, 'priorPaymentBlockers'), false);
+      assert.equal(Object.hasOwn(engine.view(), 'priorPaymentBlockers'), false);
+      for (const operation of exposed) assert.ok(!JSON.stringify(buyer).includes(operation.id));
+      for (const other of ['auth-ola', 'auth-bartek', 'auth-jan']) assert.ok(!JSON.stringify(buyer).includes(other));
+      if (initialStatus === 'FAILED') {
+        await engine.reconcile('kasia'); assert.equal(engine.view('kasia').gates.authorize.allowed, false); assert.equal(voidRequests, 4);
+        released = true;
+        for (const operation of exposed) await engine.retryCompensation('kasia', operation.id);
+        assert.equal(voidRequests, 8); assert.equal(authorizationReads, 0);
+      } else {
+        for (const operation of exposed) await engine.reconcile('kasia', operation.id);
+        assert.equal(voidRequests, 4, 'Checking a known pending void must not send another void'); assert.equal(authorizationReads, 4);
+      }
+      const settled = engine.view('kasia'); assert.ok(settled.authenticated && settled.role === 'organizer');
+      assert.deepEqual(settled.priorPaymentBlockers, []); assert.equal(settled.gates.authorize.allowed, true);
+    } finally { store.close(); }
+  }
 });
 
 test('SQLite optimistic revision prevents a second writer from replacing committed financial state', () => {
