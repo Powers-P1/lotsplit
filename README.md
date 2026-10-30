@@ -108,7 +108,7 @@ The [Render deployment notes](docs/deployment.md) describe the prepared Docker B
 
 - [Official requirements and focused award map](docs/hackathon.md)
 - [Submission draft and evidence still to collect](docs/submission-draft.md)
-- [90-second demo script](docs/demo-script.md)
+- [135-second demo script](docs/demo-script.md)
 - [Original demo assets and attribution](docs/assets.md)
 - [Same-panel internal review and follow-up](docs/internal-review.md)
 

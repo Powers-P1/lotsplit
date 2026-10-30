@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "project": "LOTSPLIT",
-  "checkedAt": "2026-10-30T15:12:34.973Z",
-  "scope": "Normal application API purchase flow with genuine browser Sandbox checkout approvals; full buyer UI/return walkthrough remains pending.",
+  "checkedAt": "2026-10-30T18:24:11.557Z",
+  "scope": "Current publication-stage UI purchase at application commit ce58fff; Ola/Bartek/Jan clean returns, Maja explicit same-operation/key recovery, then four completed captures. Historical ai/paypal objects below retain the earlier integration proof.",
   "ai": {
     "textPreferences": {
       "provider": "nebius",
@@ -115,15 +115,26 @@
   ],
   "automatedProviderTransport": "mocked",
   "unverified": [
-    "Full buyer UI and real payment-return walkthrough",
+    "Maja clean first-attempt buyer callback after the patch was not separately repeated",
     "Live webhook delivery and signature verification",
     "Live refund and void outcomes",
-    "Hosted deployment and restart persistence"
+    "Hosted deployment and restart persistence",
+    "Entrant-provided free private live-provider judge access",
+    "Public YouTube URL and final Devpost submission"
   ],
   "publicDelivery": {
-    "repositoryPublished": false,
+    "repositoryPublished": true,
     "youtubeUploaded": false,
-    "devpostSubmitted": false
+    "devpostSubmitted": false,
+    "repositoryUrl": "https://github.com/Powers-P1/lotsplit",
+    "testedApplicationCommit": "ce58fffab1cac39f8012d34bb4cba7f3e0b60430",
+    "judgeSetupGuide": "docs/judge-access.md",
+    "noKeyCleanInstallRehearsalVerified": true,
+    "privateFreeLiveJudgeAccess": "PENDING",
+    "youtubeUrl": null,
+    "filmEditTargetSeconds": 135,
+    "filmEditStatus": "IN_PROGRESS_ACTUAL_APP_FRAMES",
+    "devpostUrl": null
   },
   "evidencePolicy": "Sanitized public summary; no approval URLs, invitation links, credentials, sessions or payment request/idempotency keys. See verification.md for scope.",
   "localChecksScope": "Original illustration-only integration snapshot; Docker/container check covered the original 25 PNGs. Expanded-source results are separate below.",
@@ -879,7 +890,7 @@
   },
   "englishRelease": {
     "date": "2026-10-30",
-    "snapshotStatus": "FINAL_ENGLISH_QA_PASSED_SOURCE_FROZEN",
+    "snapshotStatus": "HISTORICAL_V4_PACKAGED_SOURCE",
     "defaultLanguage": "English",
     "releaseVersion": "v4",
     "defaultFreshRehearsalExample": "home",
@@ -1257,5 +1268,121 @@
       "newOrdersOrCaptures": 0,
       "externalProviderRecheckPerformed": false
     }
+  },
+  "historicalIntegrationCheckedAt": "2026-10-30T15:12:34.973Z",
+  "recordScopes": {
+    "ai": "Historical original text/one-image vision proof; unchanged.",
+    "paypal": "Historical earlier API purchase proof; unchanged.",
+    "englishRelease": "Historical English v4 source/package and AI smoke.",
+    "publicationStage": "Later source commit ce58fff and isolated normal-UI Sandbox run with a manual Maja recovery."
+  },
+  "publicationStage": {
+    "verifiedAt": "2026-10-30T18:24:11.557Z",
+    "applicationSourceCommit": "ce58fffab1cac39f8012d34bb4cba7f3e0b60430",
+    "applicationSourceCommitUrl": "https://github.com/Powers-P1/lotsplit/commit/ce58fffab1cac39f8012d34bb4cba7f3e0b60430",
+    "repositoryUrl": "https://github.com/Powers-P1/lotsplit",
+    "sourceChecks": {
+      "testsPassed": 73,
+      "testsFailed": 0,
+      "typecheck": "PASS",
+      "productionBuild": "PASS",
+      "automatedProviderTransport": "mocked"
+    },
+    "documentationBoundary": "Later documentation-only publication commits may differ; no application code, runtime or existing ZIP changed by this update.",
+    "sandboxUi": {
+      "environment": "PayPal Sandbox",
+      "isolatedStore": true,
+      "logicalBuyerRoles": 4,
+      "sandboxPayerAccounts": 1,
+      "sequentialApplicationBuyerSessions": 4,
+      "exactConsents": 4,
+      "fictitiousDeliveryAddresses": true,
+      "genuineSandboxCheckoutApprovals": 4,
+      "authorizations": 4,
+      "cleanReturnBuyerRoles": [
+        "ola",
+        "bartek",
+        "jan"
+      ],
+      "majaRecovery": {
+        "initialProviderApprovalSucceeded": true,
+        "initialAuthorizationDispatchFailed": true,
+        "originalFailureCauseKnown": false,
+        "manualUiRecoveryAfterFix": true,
+        "manualRecoveryClicks": 1,
+        "sameOriginalOperation": true,
+        "sameFrozenCommandAndSavedKey": true,
+        "savedCommandAttempts": 2,
+        "buyerOrderOperationCount": 1,
+        "buyerAuthorizationOperationCount": 1,
+        "duplicateOperationCreated": false,
+        "successfulRecoveryAt": "2026-10-30T18:19:14.621Z",
+        "cleanFirstAttemptCallbackAfterPatchRepeated": false
+      },
+      "captures": [
+        {
+          "buyerId": "maja",
+          "amountCents": 18000,
+          "currency": "PLN",
+          "status": "COMPLETED"
+        },
+        {
+          "buyerId": "ola",
+          "amountCents": 21000,
+          "currency": "PLN",
+          "status": "COMPLETED"
+        },
+        {
+          "buyerId": "bartek",
+          "amountCents": 22000,
+          "currency": "PLN",
+          "status": "COMPLETED"
+        },
+        {
+          "buyerId": "jan",
+          "amountCents": 23000,
+          "currency": "PLN",
+          "status": "COMPLETED"
+        }
+      ],
+      "totalCapturedCents": 84000,
+      "currency": "PLN",
+      "providerReadbacks": {
+        "method": "GET",
+        "allHttpStatus": 200,
+        "allStatuses": "COMPLETED",
+        "completedAt": "2026-10-30T18:24:11.557Z",
+        "verifierFinancialPosts": 0
+      },
+      "planStatus": "paid",
+      "organizerCaptureButtonClicks": 1,
+      "packingUnlocked": true,
+      "packageCount": 4,
+      "packagesMarkedPacked": 0,
+      "packagesMarkedShipped": 0
+    },
+    "originalSandboxPreserved": {
+      "revision": 97,
+      "stateBytesIdentical": true,
+      "completedCaptures": 4,
+      "capturedCents": 84000
+    },
+    "film": {
+      "targetSeconds": 135,
+      "supersedesSeconds": 90,
+      "status": "IN_PROGRESS",
+      "actualApplicationFrames": true,
+      "genuineSandboxFootageAvailable": true,
+      "youtubeUrl": null,
+      "majaFailedInitialReturnExcludedFromCleanSuccessFootage": true
+    },
+    "limits": [
+      "Sandbox test funds; one test payer for four logical buyers",
+      "No real-customer or ROI validation",
+      "No escrow or atomic group settlement",
+      "No live refund, void or webhook result added",
+      "No package marked packed or shipped",
+      "Private free live judge access, YouTube and Devpost pending"
+    ]
   }
 }

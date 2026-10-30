@@ -1,8 +1,27 @@
 # Verification record — 30 October 2026
 
-The English-default v4 source passed 66 tests, TypeScript, the production build and the selected English UI/recovery review below. One new live English preferences proposal is recorded separately from the original AI/PayPal proof. V2 remains preserved; ZIP v3 was not created. Public delivery remains unfinished.
+The published application source at [`ce58fff`](https://github.com/Powers-P1/lotsplit/commit/ce58fffab1cac39f8012d34bb4cba7f3e0b60430) passed 73 tests, TypeScript and the production build. The later isolated Sandbox UI purchase below reached four completed captures totaling PLN 840. Three buyers had clean returns; Maja required a guarded manual recovery. The public repository and clean-install guide are available. Private free live-provider judge access, public YouTube upload and Devpost submission remain pending.
 
-## English-default v4 release
+## Published source and later Sandbox UI verification
+
+Public source: [Powers-P1/lotsplit](https://github.com/Powers-P1/lotsplit). The tested application revision is [`ce58fffab1cac39f8012d34bb4cba7f3e0b60430`](https://github.com/Powers-P1/lotsplit/commit/ce58fffab1cac39f8012d34bb4cba7f3e0b60430). Later documentation-only commits may differ; the source checks and provider evidence here are tied to that application revision. No existing source ZIP was replaced by this documentation update.
+
+| Check | Actual result |
+| --- | --- |
+| Source checks | 73 tests passed, TypeScript passed, production build passed. Automated provider transport remains mocked; these checks are separate from the real Sandbox results below. |
+| Buyer interface | Four exact-term consents and four fictitious delivery addresses were entered through the application UI. All four logical buyers genuinely approved PayPal Sandbox checkout. |
+| Clean buyer returns | Ola, Bartek and Jan returned through the normal UI and completed authorization. This does not establish four independent payer identities: one Sandbox payer account was used across four sequential application buyer sessions. |
+| Maja's initial return | PayPal approval returned to Maja and the same plan, but the first authorization dispatch was stored as failed. Its original provider error details were not retained, so the precise cause is unknown. |
+| Maja's guarded recovery | After the fix, one explicit UI **Check and retry existing authorization** action reused the original operation, frozen command and saved key. The saved command has two attempts in total, with one order and one authorization operation; recovery confirmed authorization of PLN 180 without a duplicate operation. Maja's clean first-attempt callback after the patch was not separately repeated. |
+| Completed purchase | Four authorizations followed by one organizer capture-button action produced four captures: PLN 180, 210, 220 and 230. Independent provider GET readbacks returned HTTP 200 and `COMPLETED` for all four by **2026-10-30T18:24:11.557Z**, totaling PLN 840. The verifier used OAuth and read-only provider GETs, not financial POSTs. |
+| Packing | Plan status `paid`; packing unlocked for four packages. Zero packages were marked packed or shipped. |
+| Original Sandbox preservation | The earlier instance remained byte-identical at revision 97, with its original four completed captures totaling PLN 840. The new run used an isolated Sandbox store. |
+| Public setup | The public [judge setup guide](judge-access.md) provides a verified clean no-key rehearsal path. Its simulated payments/sample AI remain visibly labeled. Entrant-provided free private live-provider judge access is still pending; optional own-account setup does not complete that obligation. |
+| Film and submission | A **135-second** English edit using actual app frames and genuine Sandbox footage is in progress. It replaces the earlier 90-second plan. No public YouTube URL or Devpost completion is claimed. |
+
+The first failed Maja return is excluded from clean-success footage. Clean-return scenes must use the recorded Ola/Bartek/Jan path; a Maja recovery scene must retain its manual-recovery label. This is test money, prepared fictional inventory and one test payer, not evidence of real customers or returns on investment. Separate payments provide neither escrow nor atomic group settlement. No live refund, void or webhook result was added by this run.
+
+## Historical English-default v4 snapshot
 
 The interface, default example names/descriptions, exercised organizer/buyer copy and errors are English. The main entry shows **Garage Sale**, **Small Business Clearance** and **Workshop Equipment**; the drawer retains all six examples. Pricing and the allocation/payment rules are unchanged.
 
@@ -105,19 +124,21 @@ The preceding vinyl/book/illustration snapshot passed 59/59 tests (36 domain, 20
 | Prior browser review | Local browser artifacts cover organizer/buyer flows, capture gates, packing, changed plans, payment return/cancel and recovery using visibly labeled rehearsal payments. They also retain the live Nebius preference response. These screenshots are not proof of real Sandbox payments. |
 | Packaging hygiene | `.gitignore` excludes local environments, `data`, logs and organizer access files; `.dockerignore` also excludes SQLite/database files and test output. A source-only credential-pattern scan found no private-key blocks or long credential-shaped literals. Environment values were not read. |
 
-Local toolchain: Node.js `v24.19.0`, npm `11.17.0`, Docker Engine `29.7.2`. The built container used Node.js `v24.22.2`. The workspace has no Git metadata, so a public commit identifier is still pending.
+Historical local toolchain: Node.js `v24.19.0`, npm `11.17.0`, Docker Engine `29.7.2`; the built container used Node.js `v24.22.2`. The original workspace snapshot had no Git metadata. The later tested application source is now recorded by the public commit above.
 
 The original production build reported a size warning for the organizer bundle (about 1.19 MB minified / 332 kB gzip). That build passed; performance on a hosted connection has not been measured.
 
 The domain tests cover exact consent and buyer privacy, fixed-price allocation, individual budgets, the saved reservation deadline, per-capture expiry gates, concurrency, durable operation commands and reconciliation after lost responses. Fresh data and explicit rehearsal scenario resets reserve for 48 hours from the engine clock. Reloads and restarts keep the stored deadline. Tests validate the exercised cases; they do not substitute for real provider approvals.
 
-The Sandbox purchase used four separate application sessions and one PayPal Sandbox personal payer account for the four logical buyers. The evidence covers the application's API purchase flow and real browser checkout approvals; it does not establish four independent PayPal payer identities or a complete buyer UI walkthrough with real return callbacks. The one-image vision proposal remained unconfirmed and was not automatically applied; the seeded 24-item catalog was confirmed separately.
+The original 15:12 UTC Sandbox purchase used four separate application sessions and one PayPal Sandbox personal payer account for the four logical buyers. That historical evidence covers the application's API purchase flow and real browser checkout approvals; it does not establish four independent PayPal payer identities or a complete buyer UI walkthrough with real return callbacks. The one-image vision proposal remained unconfirmed and was not automatically applied; the seeded 24-item catalog was confirmed separately.
 
 ## Remaining verification and delivery
 
-- Record the buyer UI walkthrough for the public demo, including the actual Sandbox return to the intended application session; the completed API flow is recorded separately above.
+- Finish the 135-second film edit and final privacy/narration review using the verified buyer UI footage. Keep Maja's manual recovery distinct from the three clean returns; public YouTube upload is still pending.
 - Verify real Sandbox webhook signature verification/delivery and provider refund/void outcomes before claiming those live integrations were tested. Their mocked tests already pass.
 - Deploy only after the chosen hosting account and paid resources are authorized; verify restart persistence on the deployed service. The Render Blueprint is prepared and has not been deployed.
-- Publish the source and public commit, record/upload the English YouTube demo, prepare judge access and submit Devpost. None of these public delivery actions has been performed.
+- Complete entrant-provided free private live-provider judge access, upload the English video publicly to YouTube and submit Devpost. The source repository and clean-install guide are public; video and final submission URLs are not yet available.
 
 Internal workspace evidence is retained in `outputs/LOTSPLIT/04-implementation/release-checks.json`, `paypal-provider-proof.json` and `sandbox-app-proof.json` beside this source directory. The retained v2 uses `outputs/LOTSPLIT/06-mvp-review/release-check-evidence-v2.json` and `examples-runtime-qa.json`; the pre-English stage adds `release-check-evidence-v3.json` and `examples-runtime-qa-v3.json`; v4 adds `release-check-evidence-v4.json`, `examples-runtime-qa-v4.json` and `english-ai-smoke-v4.json`. The standalone provider probe is historical; the application proof records the later completed purchase and live vision trace. Earlier browser traces and check logs are in the task's temporary `lotsplit-qa` directory. These private working paths are not public submission links and are excluded from the source archive.
+
+The later UI and recovery evidence is retained internally in `outputs/LOTSPLIT/09-publication/sandbox-full-ui-proof-20261030.json` and `sandbox-ui-recovery-proof-20261030.json`. The 135-second film working files are in `outputs/LOTSPLIT/10-film`. These private working paths are not public demo/video links.
