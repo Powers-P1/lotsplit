@@ -9,6 +9,7 @@ import { LotSplitEngine, type DomainState } from './domain.js';
 import { SqliteStore } from './store.js';
 import { createAiProvider } from './ai.js';
 import { createPayPalProvider } from './paypal.js';
+import { mountPublicSite } from './public-site.js';
 
 config({ path: resolve('.env.local'), quiet: true });
 config({ path: resolve('.env'), quiet: true });
@@ -79,6 +80,13 @@ app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Frame-Options', 'DENY');
+  next();
+});
+// Only static presentation pages are public. App, photos, role sessions, AI and
+// every payment route retain the existing private judging gate below.
+mountPublicSite(app);
+app.use((_req, res, next) => {
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   next();
 });
 app.use((req, res, next) => {

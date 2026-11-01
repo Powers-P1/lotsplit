@@ -37,6 +37,13 @@ async function isolatedServer(overrides: Record<string, string> = {}, mockPayPal
   try {
     await mkdir(join(directory, 'dist', 'client'), { recursive: true });
     await writeFile(join(directory, 'dist', 'client', 'index.html'), '<!doctype html><title>Private test build</title>');
+    const publicDirectory = join(directory, 'dist', 'client', 'site');
+    await mkdir(publicDirectory, { recursive: true });
+    await Promise.all([
+      ...['index', 'privacy', 'judges'].map(name => writeFile(join(publicDirectory, name + '.html'), '<!doctype html><title>Public LOTSPLIT ' + name + '</title><p>Public presentation only.</p>')),
+      writeFile(join(publicDirectory, 'styles.css'), 'body{color:#244b3b}'),
+      writeFile(join(publicDirectory, 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
+    ]);
     let entryPath = serverPath;
     if (mockPayPalWebhook) {
       entryPath = join(directory, 'mock-webhook-entry.mjs');
@@ -121,6 +128,57 @@ test('private judging gate covers pages, assets and API while health reveals no 
     const state = await fetch(`${server.origin}/api/state`, { headers: { authorization: basic } });
     assert.equal(state.status, 200);
     assert.equal((await state.json()).authenticated, false, 'Basic gate must not grant an application role');
+  } finally { await server.dispose(); }
+});
+
+test('public presentation is reachable without opening app roles, AI, payment returns or private photos', async () => {
+  const server = await isolatedServer({ JUDGE_ACCESS_USERNAME: 'jury', JUDGE_ACCESS_PASSWORD: 'hosting-test-password' });
+  try {
+    await server.ready();
+    for (const path of ['/about', '/privacy', '/judges', '/site/styles.css', '/site/favicon.svg']) {
+      const response = await fetch(server.origin + path);
+      assert.equal(response.status, 200, path);
+      assert.equal(response.headers.get('www-authenticate'), null);
+      assert.equal(response.headers.get('set-cookie'), null, 'Reading public material must not mint a judging or role session');
+      assert.ok(!(await response.text()).includes('hosting-test-password'));
+      if (!path.startsWith('/site/')) {
+        assert.equal(response.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+        assert.match(response.headers.get('content-security-policy') || '', /form-action 'none'/);
+        assert.match(response.headers.get('content-security-policy') || '', /frame-src https:\/\/www\.youtube-nocookie\.com/);
+      }
+    }
+    for (const path of ['/', '/?guide=1', '/api/state', '/api/session', '/payment/return?operationId=existing', '/assets/private-photo.png']) {
+      assert.equal((await fetch(server.origin + path)).status, 401, path);
+    }
+    for (const path of ['/about', '/api/ai/assistant', '/api/payments/capture']) {
+      assert.equal((await fetch(server.origin + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 401, path);
+    }
+    const anonymous = await fetch(server.origin + '/api/state', { headers: { authorization: basic } });
+    assert.equal((await anonymous.json()).authenticated, false);
+    const publicQuery = await fetch(server.origin + '/about?invite=PRIVATE-INVITATION-CANARY');
+    assert.ok(!(await publicQuery.text()).includes('PRIVATE-INVITATION-CANARY'), 'Presentation pages must never echo invitations');
+  } finally { await server.dispose(); }
+});
+
+test('public static paths cannot traverse into app state and indexing exposes only the presentation', async () => {
+  const server = await isolatedServer({ JUDGE_ACCESS_USERNAME: 'jury', JUDGE_ACCESS_PASSWORD: 'hosting-test-password' });
+  try {
+    await server.ready();
+    for (const path of ['/site/../api/state', '/site/%2e%2e%2fapi%2fstate', '/site/.env.local', '/site/not-a-public-file']) {
+      const response = await fetch(server.origin + path);
+      assert.ok([400, 401, 403, 404].includes(response.status), path + ' must not expose application data');
+    }
+    const robots = await fetch(server.origin + '/robots.txt');
+    assert.equal(robots.status, 200);
+    const policy = await robots.text();
+    assert.match(policy, /Allow: \/about/);
+    assert.match(policy, /Disallow: \/\n/);
+    const sitemap = await fetch(server.origin + '/sitemap.xml');
+    assert.equal(sitemap.status, 200);
+    assert.ok(!(await sitemap.text()).includes('/api/'));
+    const appPage = await fetch(server.origin + '/', { headers: { authorization: basic } });
+    assert.equal(appPage.headers.get('x-robots-tag'), 'noindex, nofollow');
+    assert.equal((await fetch(server.origin + '/about', { method: 'HEAD' })).status, 200);
   } finally { await server.dispose(); }
 });
 

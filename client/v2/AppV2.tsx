@@ -6,7 +6,9 @@ import { V2_EXAMPLES } from '../../shared/v2-examples';
 import type { useApplication, useRoute } from '../api';
 import { B, Heading, Note } from './ui';
 import Buyer from './Buyer';
+import GuidedDemo from './GuidedDemo';
 import './v2.css';
+import './guided-demo.css';
 
 const Seller=lazy(()=>import('./Seller'));
 type Props={app:ReturnType<typeof useApplication>;routing:ReturnType<typeof useRoute>};
@@ -14,33 +16,38 @@ const sellerPages=[['/setup','Lot details'],['/catalog','Catalogue'],['/particip
 export default function AppV2({app,routing}:Props){
   const {state,busy,mutate,error,notice,refresh}=app;const {route,navigate}=routing;
   const [menu,setMenu]=useState(false);const [demo,setDemo]=useState(false);
+  const [guideRequest,setGuideRequest]=useState(0);
   useEffect(()=>{setMenu(false);},[route]);
   if(!state)return null;
   const signIn=async(access:DemoAccess,collectionId?:DemoCollectionId,next='/')=>{const r=await mutate('/auth/demo',{inviteToken:access.inviteToken,collectionId});if(r){navigate(next);setDemo(false);}};
   const seller=state.authenticated&&state.role==='organizer';
+  const openGuide=()=>{if(state.mode==='rehearsal'){setMenu(false);setDemo(false);setGuideRequest(request=>request+1);}};
   const sellerNavigation=state.authenticated&&state.role==='organizer'&&!state.plan&&!state.previousPlan?[['/create','Create a lot'],...sellerPages]:sellerPages;
   return <div className={`v2 ${seller?'v2-seller':'v2-buyer'}`}>
+    <a className="v-skip-link" href="#main-content" onClick={event=>{event.preventDefault();const main=document.getElementById('main-content');if(main){main.tabIndex=-1;main.focus();main.scrollIntoView({block:'start'});}}}>Skip to content</a>
     <header className="v-header"><div className="v-header-inner">
       <div className="v-brand-area">{state.authenticated&&!seller&&route!=='/'&&route!=='/collection'?<button className="v-icon-button" aria-label="Back to lot" onClick={()=>navigate('/collection')}><ArrowLeft/></button>:null}<button className="v-brand" onClick={()=>navigate('/')}>LOTSPLIT</button></div>
-      {state.authenticated?<div className="v-account"><button className="v-account-trigger" aria-expanded={menu} onClick={()=>setMenu(!menu)}>{state.me.name}<span className="v-account-role"> · {seller?'Seller':'Buyer'}</span><ChevronDown size={18}/></button>{menu?<><button className="v-menu-scrim" aria-label="Close menu" onClick={()=>setMenu(false)}/><nav className="v-menu" aria-label="Navigation">{(seller?sellerNavigation:[['/collection','The whole lot'],['/needs','My basket options'],['/plan','My purchase'],['/payment','My PayPal status']]).map(([path,label])=><button key={path} onClick={()=>{setMenu(false);navigate(path);}}>{label}</button>)}{state.mode==='rehearsal'?<button onClick={()=>{setMenu(false);setDemo(true);}}>Demo controls</button>:null}<button onClick={async()=>{if(await mutate('/auth/logout',{}))navigate('/');}}><LogOut size={16}/>Sign out</button></nav></>:null}</div>:null}
+      {state.authenticated?<div className="v-account"><button className="v-account-trigger" aria-expanded={menu} onClick={()=>setMenu(!menu)}>{state.me.name}<span className="v-account-role"> · {seller?'Seller':'Buyer'}</span><ChevronDown size={18}/></button>{menu?<><button className="v-menu-scrim" aria-label="Close menu" onClick={()=>setMenu(false)}/><nav className="v-menu" aria-label="Navigation">{(seller?sellerNavigation:[['/collection','The whole lot'],['/needs','My basket options'],['/plan','My purchase'],['/payment','My PayPal status']]).map(([path,label])=><button key={path} onClick={()=>{setMenu(false);navigate(path);}}>{label}</button>)}{state.mode==='rehearsal'?<><button onClick={openGuide}>Guided demo</button><button onClick={()=>{setMenu(false);setDemo(true);}}>Demo controls</button></>:null}<button onClick={async()=>{if(await mutate('/auth/logout',{}))navigate('/');}}><LogOut size={16}/>Sign out</button></nav></>:null}</div>:null}
     </div></header>
-    <div className="v-mode-label">{state.mode==='sandbox'?'PayPal Sandbox · test money':'Demo · simulated payments'}{state.mode==='rehearsal'?<button onClick={()=>setDemo(true)}>Demo controls</button>:null}</div>
+    <div className="v-mode-label"><span>{state.mode==='sandbox'?'PayPal Sandbox · test money':'Demo · simulated payments'}</span>{state.mode==='rehearsal'?<div className="v-mode-actions"><button id="v-guided-demo-trigger" aria-controls="v-guided-demo" onClick={openGuide}>Guided demo</button><button onClick={()=>setDemo(true)}>Demo controls</button></div>:null}</div>
+    {state.mode==='rehearsal'?<GuidedDemo state={state} busy={busy} mutate={mutate} navigate={navigate} route={route} openRequest={guideRequest}/>:null}
     {error?<div className="v-feedback"><Note tone="error"><span>{error}</span><button className="v-close-message" aria-label="Dismiss error" onClick={()=>app.setError(undefined)}><X size={16}/></button></Note></div>:null}
     {notice?<div className="v-feedback"><Note tone="ok">{notice}</Note></div>:null}
     {!state.authenticated?<Entry state={state} busy={busy} mutate={mutate} navigate={navigate} route={route} signIn={signIn}/>:state.role==='organizer'?<Suspense fallback={<div className="v-loading"><Loader2 className="v-spin"/></div>}><Seller key={state.collection.id} state={state} route={route} navigate={navigate} mutate={mutate} busy={busy} refresh={refresh}/></Suspense>:<Buyer key={`${state.collection.id}:${state.me.id}`} state={state} route={route} navigate={navigate} mutate={mutate} busy={busy} refresh={refresh}/>}
     {demo&&state.mode==='rehearsal'?<Demo state={state} busy={busy} mutate={mutate} signIn={signIn} onClose={()=>setDemo(false)} navigate={navigate}/>:null}
+    <footer className="v-public-links" aria-label="Project information"><a href="/about">About LOTSPLIT</a><a href="/judges">For judges</a></footer>
     <div className="v-live" role="status" aria-live="polite">{busy?'Saving…':''}</div>
   </div>;
 }
 function Entry({state,busy,mutate,navigate,route,signIn}:{state:AnonymousView;busy:boolean;mutate:Props['app']['mutate'];navigate:(s:string)=>void;route:string;signIn:(a:DemoAccess,c?:DemoCollectionId,n?:string)=>Promise<void>}){
   const [email,setEmail]=useState('');const [link,setLink]=useState('');
   const invite=new URLSearchParams(window.location.search).get('invite')??(window.location.pathname.startsWith('/invite/')?window.location.pathname.slice(8):'');
-  if(route==='/signin'&&state.mode==='sandbox'&&!invite)return <main className="v-narrow"><Heading title="Open your lot" subtitle="Use your private invitation link."/><Note>Sandbox access is limited to invited buyers and the configured seller. Open your complete private link, then enter its matching email address.</Note><B variant="text" onClick={()=>navigate('/')}>Back</B></main>;
-  if(route==='/signin'||invite)return <main className="v-narrow"><Heading title="Open your lot" subtitle="Use the email address linked to your invitation."/>
+  if(route==='/signin'&&state.mode==='sandbox'&&!invite)return <main className="v-narrow" id="main-content"><Heading title="Open your lot" subtitle="Use your private invitation link."/><Note>Sandbox access is limited to invited buyers and the configured seller. Open your complete private link, then enter its matching email address.</Note><B variant="text" onClick={()=>navigate('/')}>Back</B></main>;
+  if(route==='/signin'||invite)return <main className="v-narrow" id="main-content"><Heading title="Open your lot" subtitle="Use the email address linked to your invitation."/>
     <form onSubmit={async e=>{e.preventDefault();const r=await mutate('/auth/request-link',{email,inviteToken:invite});if(r?.link)setLink(r.link);}}><label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" required/></label><B type="submit" busy={busy}>Create sign-in link</B></form>
     {link?<><Note tone="ok">Your private sign-in link is ready. This prototype shows it here; no email was sent.</Note><B onClick={()=>window.location.assign(link)}>Open lot</B></>:null}
   </main>;
-  return <main className="v-entry"><Heading title="Sell the whole lot." subtitle="Agree who takes what. Get paid by each buyer."/>
+  return <main className="v-entry" id="main-content"><Heading title="Sell the whole lot." subtitle="Agree who takes what. Get paid by each buyer."/>
     <img className="v-hero" src="/assets/v2/hero.png" alt="A mixed workshop lot: tools, furniture and an extension reel"/>
     <B busy={busy} onClick={()=>state.mode==='rehearsal'?void signIn(state.demoAccess.find(a=>a.role==='organizer')!,'workshop','/create'):navigate('/signin')}>{state.mode==='rehearsal'?'Create a lot':'Open your lot'}</B>
     {state.mode==='rehearsal'?<section className="v-examples"><h2>Try an example</h2>{V2_EXAMPLES.slice(0,3).map(example=><button key={example.id} disabled={busy} onClick={()=>void signIn(state.demoAccess.find(a=>a.role==='organizer')!,example.id)}><img src={example.imageUrl} alt=""/><span><strong>{example.name}</strong><small>{example.itemCount} items · {example.buyerCount} buyers</small></span><ChevronRight size={20}/></button>)}</section>:<p className="v-caption">Use your private seller or buyer invitation to sign in. Example resets are available only in the payment rehearsal.</p>}
