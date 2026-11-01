@@ -35,7 +35,11 @@ interface PaymentResourceObservation {
   rawStatus?: string;
   expiresAt?: string;
   lastError?: string;
+  refundChecks?: { providerId: string; status?: ProviderResult['status'] }[];
+  refundChecksOverflow?: boolean;
 }
+interface PendingCaptureChange { captureId: string; eventType: string; refundId?: string }
+const MAX_CAPTURE_CHANGE_HINTS = 16;
 // PayPal documents Orders keys for 6h and Payments capture/void/refund keys for 45 days:
 // https://developer.paypal.com/sdk/orders/v2/orders-create/
 // https://github.com/paypal/PayPal-PHP-Server-SDK/blob/main/doc/controllers/payments.md
@@ -58,6 +62,7 @@ export interface DomainState {
   operations: Record<string, PaymentOperation>;
   paymentCommands?: Record<string, SavedPaymentCommand>;
   paymentObservations?: Record<string, PaymentResourceObservation>;
+  pendingCaptureChanges?: Record<string, { changes: PendingCaptureChange[]; overflow?: boolean }>;
   packing: PackingPackage[];
   webhookEventIds: string[];
   invitationTokens: Partial<Record<UserId, string>>;
@@ -273,6 +278,8 @@ export class LotSplitEngine {
   private op(state: DomainState, id: string | undefined) { return id ? state.operations[id] : undefined; }
   private observedOp(state: DomainState, id: string | undefined) {
     const operation = this.op(state, id); const observation = id ? state.paymentObservations?.[id] : undefined;
+    if (operation && state.pendingCaptureChanges?.[operation.id]) return { ...operation, status: 'UNKNOWN' as const, checkNeeded: true, providerChange: true,
+      lastError: 'A verified payment change is awaiting the original capture ID. No payment command will be repeated.' };
     return operation && observation ? { ...operation, status: observation.status, checkNeeded: observation.checkNeeded,
       updatedAt: observation.updatedAt, lastError: observation.lastError, expiresAt: observation.expiresAt ?? operation.expiresAt,
       ...(observation.adverseEventType || observation.status !== operation.status ? { providerChange: true } : {}) } : operation;
@@ -745,6 +752,9 @@ export class LotSplitEngine {
       if (!saved) { current.lastError = 'No saved provider command was found. This operation needs manual reconciliation; no new charge will be created.'; return undefined; }
       if (saved.leaseExpiresAt && Date.parse(saved.leaseExpiresAt) > this.now().getTime()) return undefined;
       if (recovering) {
+        if (state.pendingCaptureChanges?.[current.id]) {
+          current.checkNeeded = true; current.lastError = 'A verified payment change is awaiting the original capture ID. No payment command will be repeated.'; return undefined;
+        }
         const age = this.now().getTime() - Date.parse(current.createdAt);
         if (!Number.isFinite(age) || age < 0 || age >= SAFE_REPLAY_WINDOW_MS) {
           current.status = 'UNKNOWN'; current.checkNeeded = true;
@@ -779,6 +789,7 @@ export class LotSplitEngine {
         }
       }
       this.applyResult(operation.id, result);
+      if (this.snapshot().paymentObservations?.[operation.id]?.checkNeeded) await this.reconcileObservation(operation.id);
     } catch (error) {
       this.mutate(state => {
         const op = state.operations[operation.id]; if (!op || isFinal(op)) return;
@@ -827,6 +838,7 @@ export class LotSplitEngine {
       operation.status = result.status; operation.providerId = result.providerId || operation.providerId;
       operation.approvalUrl = result.approvalUrl ?? operation.approvalUrl; operation.updatedAt = this.time();
       operation.checkNeeded = ['UNKNOWN', 'PENDING'].includes(result.status); operation.lastError = undefined; operation.providerError = undefined;
+      this.bindPendingCaptureChanges(state, operation);
       if (operation.kind === 'authorize' && result.expiresAt) operation.expiresAt = result.expiresAt;
       if(state.collection.protocolVersion===2 && operation.kind==='authorize' && result.status==='AUTHORIZED' && !state.paymentDeadline)
         state.paymentDeadline=new Date(Math.min(Date.parse(state.collection.reservationExpiresAt),this.now().getTime()+24*3600_000)).toISOString();
@@ -900,7 +912,7 @@ export class LotSplitEngine {
         if (views.some(p => isUnknown(p.capture))) { plan.status = 'reconciling'; return { kind: 'stop' as const }; }
         if (views.every(p => p.capture?.status === 'COMPLETED')) {
           plan.status = 'paid';
-          state.packing = plan.assignments.map(a => ({ buyerId: a.buyerId, buyerName: this.participant(state, a.buyerId).name,
+          if (!state.packing.length) state.packing = plan.assignments.map(a => ({ buyerId: a.buyerId, buyerName: this.participant(state, a.buyerId).name,
             address: this.participant(state, a.buyerId).address!, itemIds: a.itemIds, totalCents: a.totalCents, checkedItemIds: [] }));
           return { kind: 'stop' as const };
         }
@@ -935,7 +947,7 @@ export class LotSplitEngine {
           const retainedByCurrent=!!payment.authorization && current?.id!==plan.id && current?.payments[assignment.buyerId]?.authorizationOperationId===payment.authorization.id;
           if(retainedByCurrent || (!this.expired(state) && !replacement && participant.active && sameTerms && stillAccepted && plan.consents[assignment.buyerId]?.contract===V2_CONTRACT && !payment.capture)) return undefined;
         }
-        if (isUnknown(payment.capture) || isUnknown(payment.authorization) || isUnknown(payment.order)) return undefined;
+        if (isUnknown(payment.capture) || (payment.capture && state.pendingCaptureChanges?.[payment.capture.id])) return undefined;
         if (payment.capture?.status === 'COMPLETED') {
           if(state.collection.protocolVersion===2 && !payment.refund && payment.capture.providerId){const existing=Object.values(state.operations).find(op=>op.kind==='refund'&&op.parentProviderId===payment.capture!.providerId);if(existing){plan.payments[assignment.buyerId]!.refundOperationId=existing.id;return undefined;}}
           if (!payment.refund && payment.capture.providerId) return this.prepareOperation(state, plan, assignment.buyerId, 'refund', payment.capture.providerId);
@@ -943,7 +955,8 @@ export class LotSplitEngine {
           // A confirmed external reversal is already settled; an uncertain/partial one
           // was stopped above. Neither permits another full refund or an authorization void.
           return undefined;
-        } else if (payment.authorization?.status === 'AUTHORIZED') {
+        } else if (isUnknown(payment.authorization) || isUnknown(payment.order)) return undefined;
+        else if (payment.authorization?.status === 'AUTHORIZED') {
           if(state.collection.protocolVersion===2 && !payment.void && payment.authorization.providerId){const existing=Object.values(state.operations).find(op=>op.kind==='void'&&op.parentProviderId===payment.authorization!.providerId);if(existing){plan.payments[assignment.buyerId]!.voidOperationId=existing.id;return undefined;}}
           if (!payment.void && payment.authorization.providerId) return this.prepareOperation(state, plan, assignment.buyerId, 'void', payment.authorization.providerId);
         } else if (payment.order && ['CREATED', 'APPROVED'].includes(payment.order.status) && !payment.authorization) {
@@ -956,7 +969,7 @@ export class LotSplitEngine {
   }
   async reconcile(userId: UserId, operationId?: string) {
     const state = this.snapshot();
-    const operations = operationId ? [state.operations[operationId]].filter(Boolean) : Object.values(state.operations).filter(op => isUnknown(op) || state.paymentObservations?.[op.id]?.checkNeeded);
+    const operations = operationId ? [state.operations[operationId]].filter(Boolean) : Object.values(state.operations).filter(op => isUnknown(op) || state.paymentObservations?.[op.id]?.checkNeeded || state.pendingCaptureChanges?.[op.id]);
     if (operationId && !operations.length) throw new DomainError('NOT_FOUND', 'Operation not found.', 404);
     if (operations.some(op => userId !== 'kasia' && op.buyerId !== userId)) throw new DomainError('FORBIDDEN', 'You can check only your own operations.', 403);
     for (const operation of operations) await this.reconcileOperation(operation.id);
@@ -1009,7 +1022,34 @@ export class LotSplitEngine {
     return { operationId: operation.id };
   }
   private async reconcileOperation(operationId: string) {
-    const state = this.snapshot(); const operation = state.operations[operationId];
+    let state = this.snapshot(); const operation = state.operations[operationId];
+    if (operation && state.pendingCaptureChanges?.[operationId] && !operation.providerId) {
+      // Even an error response cannot erase a verified event received while this
+      // command was in flight. Resolve identity by the saved order, never replay.
+      try {
+        const provider = this.options.paymentProvider;
+        const plan = state.plans.find(p => p.id === operation.planId)!;
+        const orderId = this.payment(state, plan, operation.buyerId).order?.providerId;
+        if (!provider || !orderId) throw new Error('The saved order is unavailable');
+        const order = await provider.getOrder(orderId);
+        if (order.providerId !== orderId || order.amountCents !== operation.amountCents || order.currency !== operation.currency || !order.captureId)
+          throw new Error('The original capture identity is not confirmed');
+        this.mutate(s => {
+          const saved = s.operations[operationId]; saved.providerId ??= order.captureId;
+          this.bindPendingCaptureChanges(s, saved);
+        });
+        await this.reconcileOperation(operationId);
+      } catch {
+        this.mutate(s => {
+          const saved = s.operations[operationId]; saved.checkNeeded = true;
+          saved.lastError = 'A verified payment change is awaiting the original capture ID. No payment command will be repeated.';
+        });
+      }
+      return;
+    }
+    if (operation?.providerId && state.pendingCaptureChanges?.[operationId]) {
+      this.mutate(s => this.bindPendingCaptureChanges(s, s.operations[operationId])); state = this.snapshot();
+    }
     if (state.paymentObservations?.[operationId]) { await this.reconcileObservation(operationId); return; }
     if (!operation || isFinal(operation)) return;
     this.mutate(s => { s.operations[operationId].reconcileAttempts++; s.operations[operationId].updatedAt = this.time(); });
@@ -1049,8 +1089,45 @@ export class LotSplitEngine {
         }
       }
       this.applyResult(operationId, result);
+      if (this.snapshot().paymentObservations?.[operationId]?.checkNeeded) await this.reconcileObservation(operationId);
     } catch (error) {
       this.mutate(s => { const op = s.operations[operationId]; if (!isFinal(op)) { op.status = 'UNKNOWN'; op.checkNeeded = true; op.lastError = 'We are still checking the result of the existing operation.'; op.providerError = providerErrorInfo(error); } });
+    }
+  }
+  private adverseResourceEvent(type: string) {
+    if (type.startsWith('PAYMENT.REFUND.')) return /\.(COMPLETED|SUCCEEDED)$/.test(type);
+    return /\.(VOIDED|EXPIRED|REVERSED|REFUNDED|PARTIALLY_REFUNDED|DECLINED|DENIED|FAILED|CANCELLED)$/.test(type);
+  }
+  private observeProviderChange(state: DomainState, operation: PaymentOperation, type: string, refundId?: string) {
+    if (!['authorize', 'capture'].includes(operation.kind) || !operation.providerId) return;
+    const existing = state.paymentObservations?.[operation.id];
+    if (existing && !existing.checkNeeded && ['VOIDED', 'FAILED', 'CANCELLED'].includes(existing.status)) return;
+    const refundChecks = clone(existing?.refundChecks ?? []);
+    let overflow = existing?.refundChecksOverflow;
+    if (refundId && !refundChecks.some(check => check.providerId === refundId)) {
+      if (refundChecks.length < MAX_CAPTURE_CHANGE_HINTS) refundChecks.push({ providerId: refundId });
+      else overflow = true;
+    }
+    // A failed refund is not a reversal of the original capture. Its exact
+    // refund resource must be checked before an intact capture can be used again.
+    const previousAdverse = refundId && existing?.adverseEventType && !this.adverseResourceEvent(existing.adverseEventType) ? undefined : existing?.adverseEventType;
+    (state.paymentObservations ??= {})[operation.id] = { providerId: operation.providerId, status: 'UNKNOWN', checkNeeded: true, updatedAt: this.time(),
+      adverseEventType: previousAdverse ?? (this.adverseResourceEvent(type) ? type : undefined),
+      ...(refundChecks.length ? { refundChecks } : {}), ...(overflow ? { refundChecksOverflow: true } : {}),
+      lastError: 'We are checking the payment change reported by PayPal. No payment command will be repeated.' };
+    if (operation.kind === 'capture' && (this.adverseResourceEvent(type) || refundId)) for (const plan of state.plans) {
+      if (plan.status === 'paid' && plan.payments[operation.buyerId]?.captureOperationId === operation.id) plan.status = 'reconciling';
+    }
+  }
+  private bindPendingCaptureChanges(state: DomainState, operation: PaymentOperation) {
+    const pending = state.pendingCaptureChanges?.[operation.id];
+    if (!pending || operation.kind !== 'capture' || !operation.providerId) return;
+    delete state.pendingCaptureChanges![operation.id];
+    for (const change of pending.changes) if (change.captureId === operation.providerId)
+      this.observeProviderChange(state, operation, change.eventType, change.refundId);
+    if (pending.overflow) {
+      this.observeProviderChange(state, operation, 'PAYMENT.CAPTURE.REVIEW_REQUIRED');
+      state.paymentObservations![operation.id].adverseEventType ??= 'PAYMENT.CAPTURE.REVIEW_REQUIRED';
     }
   }
   /** Lifecycle checks only GET the exact saved resource; they never replay its command. */
@@ -1064,13 +1141,28 @@ export class LotSplitEngine {
       if (!provider) throw new DomainError('PAYPAL_NOT_CONFIGURED', 'PayPal sandbox is not configured.', 503);
       const result = operation.kind === 'authorize' ? await provider.getAuthorization(observation.providerId) : await provider.getCapture(observation.providerId);
       if (result.providerId !== observation.providerId) throw new PayPalProviderError('PAYPAL_ID_MISMATCH', 'The provider returned a different resource.', true);
+      const refundResults = new Map<string, ProviderResult['status']>();
+      if (operation.kind === 'capture' && result.status === 'COMPLETED' && result.amountCents === operation.amountCents && result.currency === operation.currency) {
+        for (const check of observation.refundChecks ?? []) {
+          if (['FAILED', 'CANCELLED', 'COMPLETED'].includes(check.status ?? '')) continue;
+          const refund = await provider.getRefund(check.providerId);
+          if (refund.providerId !== check.providerId || (refund.captureId && refund.captureId !== observation.providerId))
+            throw new PayPalProviderError('PAYPAL_ID_MISMATCH', 'The provider returned a different refund resource.', true);
+          const compatibleMoney = (refund.amountCents === undefined || (Number.isSafeInteger(refund.amountCents) && refund.amountCents > 0 && refund.amountCents <= operation.amountCents)) &&
+            (refund.currency === undefined || refund.currency === operation.currency);
+          const failed = ['FAILED', 'CANCELLED'].includes(refund.status);
+          refundResults.set(check.providerId, compatibleMoney && (failed || (refund.amountCents !== undefined && refund.currency === operation.currency)) ? refund.status : 'UNKNOWN');
+        }
+      }
       if (!isFinal(operation)) this.applyResult(operationId, result);
       this.mutate(s => {
         const current = s.paymentObservations![operationId];
         // Once release is confirmed, a delayed positive response cannot resurrect it.
         if (!current.checkNeeded && ['VOIDED', 'FAILED', 'CANCELLED'].includes(current.status)) return;
+        for (const check of current.refundChecks ?? []) if (refundResults.has(check.providerId) && !['FAILED', 'CANCELLED', 'COMPLETED'].includes(check.status ?? '')) check.status = refundResults.get(check.providerId);
+        const refundsFailed = !current.refundChecksOverflow && (current.refundChecks ?? []).every(check => ['FAILED', 'CANCELLED'].includes(check.status ?? ''));
         const exactAmount = result.amountCents === operation.amountCents && result.currency === operation.currency;
-        const positive = result.status === (operation.kind === 'authorize' ? 'AUTHORIZED' : 'COMPLETED') && exactAmount;
+        const positive = result.status === (operation.kind === 'authorize' ? 'AUTHORIZED' : 'COMPLETED') && exactAmount && refundsFailed;
         const released = operation.kind === 'authorize' ? ['VOIDED', 'FAILED', 'CANCELLED'].includes(result.status)
           : exactAmount && (['FAILED', 'CANCELLED'].includes(result.status) || result.rawStatus === 'REFUNDED');
         current.status = released ? (operation.kind === 'capture' ? 'FAILED' : result.status) : positive && !current.adverseEventType ? result.status : 'UNKNOWN';
@@ -1120,7 +1212,6 @@ export class LotSplitEngine {
         return found && found[0] === link.href ? [found[1]] : [];
       }) : []);
       const captureId = related?.capture_id ?? (linkedCaptureIds.size === 1 ? [...linkedCaptureIds][0] : undefined);
-      const adverse = /\.(VOIDED|EXPIRED|REVERSED|REFUNDED|PARTIALLY_REFUNDED|DECLINED|DENIED|FAILED|CANCELLED)$/.test(type);
       const currentUnidentified = (op: PaymentOperation) => !op.providerId && !isFinal(op) &&
         state.plans.some(plan => {
           const payment = plan.payments[op.buyerId];
@@ -1136,18 +1227,22 @@ export class LotSplitEngine {
           (op.kind === 'capture' && !!captureId && op.providerId === captureId);
         return orderEvent && ((op.kind === 'order' && op.providerId === resourceId) || (op.kind === 'authorize' && op.parentProviderId === resourceId));
       });
+      const unmatchedCaptureId = refundEvent ? captureId : captureEvent ? resourceId : undefined;
+      if (unmatchedCaptureId && !matches.some(op => op.kind === 'capture')) {
+        // A verified event may precede the response attaching a capture ID.
+        // Retain only bounded hints for commands already in flight; bind them
+        // by the real provider ID in the same commit that saves that response.
+        for (const op of Object.values(state.operations).filter(op => op.kind === 'capture' && currentUnidentified(op) &&
+          isUnknown(op) && (state.paymentCommands?.[op.id]?.attempts ?? 0) > 0)) {
+          const pending = (state.pendingCaptureChanges ??= {})[op.id] ??= { changes: [] };
+          if (pending.changes.some(change => change.captureId === unmatchedCaptureId && change.eventType === type && change.refundId === (refundEvent ? resourceId : undefined))) continue;
+          if (pending.changes.length < MAX_CAPTURE_CHANGE_HINTS) pending.changes.push({ captureId: unmatchedCaptureId, eventType: type, ...(refundEvent ? { refundId: resourceId } : {}) });
+          else pending.overflow = true;
+        }
+      }
       for (const op of matches) {
         if (!op.providerId && ((authorizationEvent && op.kind === 'authorize') || (captureEvent && op.kind === 'capture') || (refundEvent && op.kind === 'refund'))) op.providerId = resourceId;
-        if (!['authorize', 'capture'].includes(op.kind) || !op.providerId) continue;
-        const existing = state.paymentObservations?.[op.id];
-        if (existing && !existing.checkNeeded && ['VOIDED', 'FAILED', 'CANCELLED'].includes(existing.status)) continue;
-        const observation: PaymentResourceObservation = { providerId: op.providerId, status: 'UNKNOWN', checkNeeded: true, updatedAt: this.time(),
-          adverseEventType: existing?.adverseEventType ?? (adverse ? type : undefined),
-          lastError: 'We are checking the payment change reported by PayPal. No payment command will be repeated.' };
-        (state.paymentObservations ??= {})[op.id] = observation;
-        if (op.kind === 'capture' && adverse) for (const plan of state.plans) {
-          if (plan.status === 'paid' && plan.payments[op.buyerId]?.captureOperationId === op.id) plan.status = 'reconciling';
-        }
+        this.observeProviderChange(state, op, type, refundEvent && op.kind === 'capture' ? resourceId : undefined);
       }
       return matches.map(op => op.id);
     });

@@ -27,6 +27,7 @@ async function fixture() {
   const hooks: {
     authorizationRead?: (id: string) => Promise<ProviderResult>;
     captureRead?: (id: string) => Promise<ProviderResult>;
+    refundRead?: (id: string) => Promise<ProviderResult>;
     captured?: (id: string, result: ProviderResult) => Promise<void>;
   } = {};
   const provider: PaymentProvider = {
@@ -60,7 +61,7 @@ async function fixture() {
     async getOrder(id) { reads.push(`order:${id}`); return { ...orders.get(id)! }; },
     async getAuthorization(id) { reads.push(`authorize:${id}`); return hooks.authorizationRead ? hooks.authorizationRead(id) : { ...authorizations.get(id)! }; },
     async getCapture(id) { reads.push(`capture:${id}`); return hooks.captureRead ? hooks.captureRead(id) : { ...captures.get(id)! }; },
-    async getRefund() { throw new Error('No refund read is expected'); },
+    async getRefund(id) { reads.push(`refund:${id}`); if (hooks.refundRead) return hooks.refundRead(id); throw new Error('No refund read is expected'); },
   };
   const engine = new LotSplitEngine(store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: provider });
   for (const item of engine.snapshot().collection.items) engine.updateItem('kasia', item.id, { confirmed: true });
@@ -359,5 +360,204 @@ test('unrelated, malformed and ambiguous refund up links never select or request
     ] } });
     assert.deepEqual(f.reads, []); assert.equal(f.writes.length, count);
     assert.equal(engine.view('kasia').gates.packing.allowed, true);
+  } finally { store.close(); }
+});
+
+test('a canonical refund received before the capture ID attaches is retained, matched and settled before any later capture', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    const notification = refundEvent('refund-before-capture-response');
+    f.hooks.captured = async (id, result) => {
+      if (id !== 'A1') return;
+      f.captures.set('C1', { ...result, status: 'UNKNOWN', rawStatus: 'REFUNDED' });
+      await engine.verifiedWebhook(notification);
+    };
+    await engine.capture('kasia', current(engine).id);
+    await engine.verifiedWebhook(notification);
+    await engine.reconcile('kasia', current(engine).payments.maja!.captureOperationId!);
+    assert.deepEqual(f.writes.filter(write => write.kind === 'capture').map(write => write.id), ['A1']);
+    assert.ok(f.reads.includes('capture:C1'));
+    assert.equal(current(engine).status, 'failed'); assert.equal(engine.view('kasia').gates.packing.allowed, false);
+    assert.equal(engine.snapshot().operations[current(engine).payments.maja!.captureOperationId!].status, 'COMPLETED');
+    assert.equal((engine.view('maja') as BuyerView).plan?.payment.capture?.status, 'FAILED');
+    assert.equal(f.writes.filter(write => write.kind === 'refund').length, 0);
+    assert.deepEqual(f.writes.filter(write => write.kind === 'void').map(write => write.id), ['A2', 'A3', 'A4']);
+  } finally { store.close(); }
+});
+
+test('an unmatched canonical refund survives a lost capture response and engine reload without replaying a provider command', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    f.hooks.captured = async (id, result) => {
+      assert.equal(id, 'A1'); f.captures.set('C1', { ...result, status: 'UNKNOWN', rawStatus: 'REFUNDED' });
+      await engine.verifiedWebhook(refundEvent('refund-before-lost-response'));
+      throw Object.assign(new Error('Capture response lost'), { uncertain: true });
+    };
+    await engine.capture('kasia', current(engine).id); delete f.hooks.captured;
+    const reloaded = new LotSplitEngine(store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    const readOrder = f.provider.getOrder;
+    f.provider.getOrder = async id => { const result = await readOrder(id); delete result.captureId; return result; };
+    await reloaded.reconcile('kasia');
+    assert.equal(current(reloaded).status, 'reconciling');
+    assert.deepEqual(f.writes.filter(write => write.kind === 'capture').map(write => write.id), ['A1']);
+    f.provider.getOrder = readOrder;
+    await reloaded.reconcile('kasia');
+    assert.equal(current(reloaded).status, 'failed'); assert.equal(reloaded.view('kasia').gates.packing.allowed, false);
+    assert.equal((reloaded.view('maja') as BuyerView).plan?.payment.capture?.status, 'FAILED');
+    assert.equal((reloaded.view('maja') as BuyerView).plan?.payment.capture?.providerChange, true);
+    assert.deepEqual(f.writes.filter(write => write.kind === 'capture').map(write => write.id), ['A1']);
+    assert.equal(f.writes.filter(write => write.kind === 'refund').length, 0);
+  } finally { store.close(); }
+});
+
+test('an unknown spent authorization never prevents refunding its certain completed capture after another capture fails', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    const originalCapture = f.provider.captureAuthorization;
+    f.provider.captureAuthorization = async (id, amountCents, currency, key) => {
+      if (id !== 'A2') return originalCapture(id, amountCents, currency, key);
+      f.writes.push({ kind: 'capture', id, key, amountCents });
+      f.authorizations.set('A1', { ...f.authorizations.get('A1')!, status: 'UNKNOWN', rawStatus: 'CAPTURED' });
+      await engine.verifiedWebhook(event('late-created-spent-authorization', 'PAYMENT.AUTHORIZATION.CREATED', 'A1'));
+      throw new PayPalProviderError('MOCK_FAILURE', 'Definitive mock failure', false);
+    };
+    await engine.capture('kasia', current(engine).id); await engine.reconcile('kasia');
+    assert.equal(current(engine).status, 'failed');
+    assert.deepEqual(f.writes.filter(write => write.kind === 'refund').map(write => write.id), ['C1']);
+    assert.equal(engine.snapshot().operations[current(engine).payments.maja!.captureOperationId!].status, 'COMPLETED');
+    assert.equal(engine.snapshot().operations[current(engine).payments.maja!.refundOperationId!].status, 'COMPLETED');
+  } finally { store.close(); }
+});
+
+test('a pending external refund blocks preparation even while the capture still reads COMPLETED', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    await engine.capture('kasia', current(engine).id); const count = f.writes.length;
+    f.hooks.refundRead = async id => ({ providerId: id, status: 'PENDING', amountCents: 38000, currency: 'PLN' });
+    await engine.verifiedWebhook({ ...refundEvent('external-pending'), event_type: 'PAYMENT.REFUND.PENDING' });
+    assert.equal(engine.view('kasia').gates.packing.allowed, false); assert.equal(current(engine).status, 'reconciling');
+    assert.deepEqual(f.reads, ['capture:C1', 'refund:EXTERNAL-REFUND']); assert.equal(f.writes.length, count);
+  } finally { store.close(); }
+});
+
+test('a failed external refund with an intact capture resolves its temporary warning and preserves preparation history', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    await engine.capture('kasia', current(engine).id); const plan = current(engine);
+    engine.updatePacking('kasia', 'maja', { checkedItemIds: plan.assignments.find(a => a.buyerId === 'maja')!.itemIds, packed: true });
+    const packing = structuredClone(engine.snapshot().packing); const count = f.writes.length;
+    f.hooks.refundRead = async id => ({ providerId: id, status: 'PENDING', amountCents: 38000, currency: 'PLN' });
+    await engine.verifiedWebhook({ ...refundEvent('pending-before-failed'), event_type: 'PAYMENT.REFUND.PENDING' });
+    assert.equal(engine.view('kasia').gates.packing.allowed, false);
+    f.hooks.refundRead = async id => ({ providerId: id, status: 'FAILED' });
+    await engine.verifiedWebhook({ ...refundEvent('external-failed'), event_type: 'PAYMENT.REFUND.FAILED' });
+    await engine.reconcile('kasia');
+    assert.equal(current(engine).status, 'paid'); assert.equal(engine.view('kasia').gates.packing.allowed, true);
+    assert.deepEqual(engine.snapshot().packing, packing); assert.equal(f.writes.length, count);
+    assert.equal((engine.view('maja') as BuyerView).plan?.payment.capture?.providerChange, undefined);
+    assert.ok(f.reads.includes('refund:EXTERNAL-REFUND'));
+  } finally { store.close(); }
+});
+
+test('a definitive capture error cannot discard a previously received refund or permit compensation against its unidentified resource', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    f.hooks.captured = async (_id, result) => {
+      f.captures.set('C1', { ...result, status: 'UNKNOWN', rawStatus: 'REFUNDED' });
+      await engine.verifiedWebhook(refundEvent('refund-before-definitive-error'));
+      throw new PayPalProviderError('MOCK_REJECTED', 'Mock definitive error after received refund', false);
+    };
+    await engine.capture('kasia', current(engine).id);
+    assert.equal(f.writes.some(write => write.kind === 'void' && write.id === 'A1'), false);
+    assert.equal((engine.view('maja') as BuyerView).plan?.payment.capture?.status, 'UNKNOWN');
+    assert.equal((engine.view('maja') as BuyerView).plan?.payment.capture?.providerChange, true);
+    await engine.reconcile('kasia');
+    const capture = engine.snapshot().operations[current(engine).payments.maja!.captureOperationId!];
+    assert.equal(capture.status, 'FAILED'); assert.equal(capture.providerId, 'C1');
+    assert.equal((engine.view('maja') as BuyerView).plan?.payment.capture?.providerChange, true);
+    assert.equal(f.writes.filter(write => write.kind === 'refund').length, 0);
+    assert.deepEqual(f.writes.filter(write => write.kind === 'capture').map(write => write.id), ['A1']);
+    assert.equal(f.writes.some(write => write.kind === 'void' && write.id === 'A1'), false);
+    assert.equal(engine.view('kasia').gates.packing.allowed, false);
+  } finally { store.close(); }
+});
+
+test('an unrelated capture ID received during a request is discarded after the real ID is attached without reading the unrelated resource', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    f.hooks.captured = async id => {
+      if (id === 'A1') await engine.verifiedWebhook(refundEvent('unrelated-inflight-refund', 'https://api.sandbox.paypal.com/v2/payments/captures/UNRELATED'));
+    };
+    await engine.capture('kasia', current(engine).id);
+    assert.deepEqual(f.reads, []); assert.equal(current(engine).status, 'paid'); assert.equal(engine.view('kasia').gates.packing.allowed, true);
+    assert.equal(f.writes.filter(write => write.kind === 'refund' || write.kind === 'void').length, 0);
+    assert.equal(Object.keys(engine.snapshot().pendingCaptureChanges ?? {}).length, 0);
+  } finally { store.close(); }
+});
+
+test('unmatched in-flight event hints are bounded and overflow stops further captures until the change can be reviewed', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    f.hooks.captured = async id => {
+      assert.equal(id, 'A1');
+      for (let index = 0; index < 40; index++) await engine.verifiedWebhook(refundEvent(`many-${index}`, `https://api.sandbox.paypal.com/v2/payments/captures/UNRELATED-${index}`));
+      const pending = Object.values(engine.snapshot().pendingCaptureChanges!);
+      assert.equal(pending.length, 1); assert.ok(pending[0].changes.length <= 16); assert.equal(pending[0].overflow, true);
+    };
+    await engine.capture('kasia', current(engine).id);
+    assert.deepEqual(f.writes.filter(write => write.kind === 'capture').map(write => write.id), ['A1']);
+    assert.equal(current(engine).status, 'reconciling'); assert.equal(engine.view('kasia').gates.packing.allowed, false);
+    assert.equal((engine.view('maja') as BuyerView).plan?.payment.capture?.status, 'UNKNOWN');
+    assert.ok(f.reads.every(read => read === 'capture:C1'));
+  } finally { store.close(); }
+});
+
+test('a pending refund received before capture identity is known still stops the remaining group captures', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    f.hooks.refundRead = async id => ({ providerId: id, status: 'PENDING', amountCents: 38000, currency: 'PLN' });
+    f.hooks.captured = async id => {
+      if (id === 'A1') await engine.verifiedWebhook({ ...refundEvent('early-pending-refund'), event_type: 'PAYMENT.REFUND.PENDING' });
+    };
+    await engine.capture('kasia', current(engine).id);
+    assert.deepEqual(f.writes.filter(write => write.kind === 'capture').map(write => write.id), ['A1']);
+    assert.deepEqual(f.reads, ['capture:C1', 'refund:EXTERNAL-REFUND']);
+    assert.equal(current(engine).status, 'reconciling'); assert.equal(engine.view('kasia').gates.packing.allowed, false);
+    assert.equal(f.writes.some(write => write.kind === 'refund' || write.kind === 'void'), false);
+  } finally { store.close(); }
+});
+
+for (const failure of ['read-error', 'wrong-id', 'wrong-capture', 'wrong-currency'] as const) {
+  test(`a ${failure} while checking a failed refund cannot restore fulfillment or issue a replacement operation`, async () => {
+    const f = await fixture(); const { engine, store } = f;
+    try {
+      await engine.capture('kasia', current(engine).id); const count = f.writes.length;
+      f.hooks.refundRead = async id => {
+        if (failure === 'read-error') throw new Error('Refund read unavailable');
+        return { providerId: failure === 'wrong-id' ? 'UNRELATED-REFUND' : id, status: 'FAILED',
+          ...(failure === 'wrong-capture' ? { captureId: 'UNRELATED-CAPTURE' } : {}),
+          ...(failure === 'wrong-currency' ? { amountCents: 38000, currency: 'USD' } : {}) };
+      };
+      await engine.verifiedWebhook({ ...refundEvent(`refund-${failure}`), event_type: 'PAYMENT.REFUND.FAILED' });
+      assert.equal(engine.view('kasia').gates.packing.allowed, false); assert.equal(current(engine).status, 'reconciling');
+      assert.equal(f.writes.length, count);
+      f.hooks.refundRead = async id => ({ providerId: id, status: 'FAILED' });
+      await engine.reconcile('kasia');
+      assert.equal(engine.view('kasia').gates.packing.allowed, true); assert.equal(current(engine).status, 'paid');
+      assert.equal(f.writes.length, count);
+    } finally { store.close(); }
+  });
+}
+
+test('a failed refund cannot clear a separately received adverse capture reversal whose GET still lags', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    await engine.capture('kasia', current(engine).id); const count = f.writes.length;
+    await engine.verifiedWebhook(event('independent-reversal', 'PAYMENT.CAPTURE.REVERSED', 'C1'));
+    f.hooks.refundRead = async id => ({ providerId: id, status: 'FAILED' });
+    await engine.verifiedWebhook({ ...refundEvent('failed-refund-after-reversal'), event_type: 'PAYMENT.REFUND.FAILED' });
+    assert.equal(engine.view('kasia').gates.packing.allowed, false); assert.equal(current(engine).status, 'reconciling');
+    assert.equal((engine.view('maja') as BuyerView).plan?.payment.capture?.status, 'UNKNOWN');
+    assert.equal(f.writes.length, count);
   } finally { store.close(); }
 });
