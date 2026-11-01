@@ -25,6 +25,17 @@ interface SavedPaymentCommand {
   leaseToken?: string;
   leaseExpiresAt?: string;
 }
+/** Provider resource lifecycles may change after an immutable command has succeeded. */
+interface PaymentResourceObservation {
+  providerId: string;
+  status: OperationStatus;
+  checkNeeded: boolean;
+  updatedAt: string;
+  adverseEventType?: string;
+  rawStatus?: string;
+  expiresAt?: string;
+  lastError?: string;
+}
 // PayPal documents Orders keys for 6h and Payments capture/void/refund keys for 45 days:
 // https://developer.paypal.com/sdk/orders/v2/orders-create/
 // https://github.com/paypal/PayPal-PHP-Server-SDK/blob/main/doc/controllers/payments.md
@@ -46,6 +57,7 @@ export interface DomainState {
   noSolution?: NoSolution;
   operations: Record<string, PaymentOperation>;
   paymentCommands?: Record<string, SavedPaymentCommand>;
+  paymentObservations?: Record<string, PaymentResourceObservation>;
   packing: PackingPackage[];
   webhookEventIds: string[];
   invitationTokens: Partial<Record<UserId, string>>;
@@ -259,12 +271,22 @@ export class LotSplitEngine {
     return plan;
   }
   private op(state: DomainState, id: string | undefined) { return id ? state.operations[id] : undefined; }
+  private observedOp(state: DomainState, id: string | undefined) {
+    const operation = this.op(state, id); const observation = id ? state.paymentObservations?.[id] : undefined;
+    return operation && observation ? { ...operation, status: observation.status, checkNeeded: observation.checkNeeded,
+      updatedAt: observation.updatedAt, lastError: observation.lastError, expiresAt: observation.expiresAt ?? operation.expiresAt,
+      ...(observation.adverseEventType || observation.status !== operation.status ? { providerChange: true } : {}) } : operation;
+  }
   private payment(state: DomainState, plan: AllocationPlan, buyerId: BuyerId): PaymentView {
     const p = plan.payments[buyerId] ?? {};
-    return { order: this.op(state, p.orderOperationId), authorization: this.op(state, p.authorizationOperationId), capture: this.op(state, p.captureOperationId), void: this.op(state, p.voidOperationId), refund: this.op(state, p.refundOperationId) };
+    return { order: this.op(state, p.orderOperationId), authorization: this.observedOp(state, p.authorizationOperationId), capture: this.observedOp(state, p.captureOperationId), void: this.op(state, p.voidOperationId), refund: this.op(state, p.refundOperationId) };
   }
   private expired(state: DomainState) { return Math.min(Date.parse(state.collection.reservationExpiresAt), state.paymentDeadline ? Date.parse(state.paymentDeadline) : Infinity) <= this.now().getTime(); }
   private captureStarted(state: DomainState) { return Object.values(state.operations).some(op => op.kind === 'capture'); }
+  private captureExternallyReleased(state: DomainState, capture: PaymentOperation | undefined) {
+    const observation = capture ? state.paymentObservations?.[capture.id] : undefined;
+    return !!observation && !observation.checkNeeded && ['FAILED', 'CANCELLED'].includes(observation.status);
+  }
   private editingAllowed(state: DomainState) {
     return !state.plans.some(plan => plan.assignments.some(a => {
       const payment = this.payment(state, plan, a.buyerId);
@@ -274,14 +296,14 @@ export class LotSplitEngine {
       if (payment.capture.status === 'COMPLETED') return payment.refund?.status !== 'COMPLETED';
       return plan.assignments.some(other => {
         const remaining = this.payment(state, plan, other.buyerId);
-        return remaining.authorization?.status === 'AUTHORIZED' && remaining.capture?.status !== 'COMPLETED' && remaining.void?.status !== 'VOIDED';
+        return remaining.authorization?.status === 'AUTHORIZED' && remaining.capture?.status !== 'COMPLETED' && !this.captureExternallyReleased(state, remaining.capture) && remaining.void?.status !== 'VOIDED';
       });
     }));
   }
   private allAgreements(plan: AllocationPlan | undefined) { return !!plan && (plan.contractVersion===2?plan.assignments.length>=2:plan.assignments.length===4) && plan.assignments.every(a => consentValid(plan, a)); }
   private authorizationReady(state: DomainState, plan: AllocationPlan, assignment: Assignment) {
     const payment = this.payment(state, plan, assignment.buyerId); const auth = payment.authorization;
-    return auth?.status === 'AUTHORIZED' && (state.collection.protocolVersion===2 ? auth.termsDigest===assignment.termsDigest && plan.consents[assignment.buyerId]?.contract===V2_CONTRACT : auth.planId===plan.id) && auth.buyerId === assignment.buyerId &&
+    return auth?.status === 'AUTHORIZED' && !auth.checkNeeded && (state.collection.protocolVersion===2 ? auth.termsDigest===assignment.termsDigest && plan.consents[assignment.buyerId]?.contract===V2_CONTRACT : auth.planId===plan.id) && auth.buyerId === assignment.buyerId &&
       auth.amountCents === assignment.totalCents && auth.currency === state.collection.currency && !!auth.providerId &&
       (!auth.expiresAt || Date.parse(auth.expiresAt) > this.now().getTime()) && !payment.void && !payment.refund;
   }
@@ -301,7 +323,7 @@ export class LotSplitEngine {
       const operations = new Map<string, PaymentOperation>();
       const add = (operation: PaymentOperation | undefined) => { if (operation && !retained.has(operation.id)) operations.set(operation.id, operation); };
       for (const operation of Object.values(payment)) if (isUnknown(operation)) add(operation);
-      if (payment.authorization?.status === 'AUTHORIZED' && payment.void?.status !== 'VOIDED' && payment.capture?.status !== 'COMPLETED') add(payment.void ?? payment.authorization);
+      if (payment.authorization?.status === 'AUTHORIZED' && payment.void?.status !== 'VOIDED' && payment.capture?.status !== 'COMPLETED' && !this.captureExternallyReleased(state, payment.capture)) add(payment.void ?? payment.authorization);
       if (payment.capture?.status === 'COMPLETED' && payment.refund?.status !== 'COMPLETED') add(payment.refund ?? payment.capture);
       if (payment.order?.status === 'CREATED' && !payment.authorization) add(payment.order);
       return operations.size ? [{ planId: plan.id, planVersion: plan.version, buyerId: a.buyerId,
@@ -790,7 +812,7 @@ export class LotSplitEngine {
         (['capture', 'refund'].includes(operation.kind) && result.status === 'COMPLETED');
       const permitted: Record<OperationKind, string[]> = {
         order: ['CREATED', 'APPROVED', 'AUTHORIZED', 'CANCELLED', 'FAILED', 'UNKNOWN'],
-        authorize: ['AUTHORIZED', 'PENDING', 'CANCELLED', 'FAILED', 'UNKNOWN'],
+        authorize: ['AUTHORIZED', 'VOIDED', 'PENDING', 'CANCELLED', 'FAILED', 'UNKNOWN'],
         capture: ['COMPLETED', 'PENDING', 'CANCELLED', 'FAILED', 'UNKNOWN'],
         void: ['VOIDED', 'PENDING', 'FAILED', 'UNKNOWN'], refund: ['COMPLETED', 'PENDING', 'FAILED', 'UNKNOWN'],
       };
@@ -917,6 +939,10 @@ export class LotSplitEngine {
         if (payment.capture?.status === 'COMPLETED') {
           if(state.collection.protocolVersion===2 && !payment.refund && payment.capture.providerId){const existing=Object.values(state.operations).find(op=>op.kind==='refund'&&op.parentProviderId===payment.capture!.providerId);if(existing){plan.payments[assignment.buyerId]!.refundOperationId=existing.id;return undefined;}}
           if (!payment.refund && payment.capture.providerId) return this.prepareOperation(state, plan, assignment.buyerId, 'refund', payment.capture.providerId);
+        } else if (payment.capture && state.paymentObservations?.[payment.capture.id]) {
+          // A confirmed external reversal is already settled; an uncertain/partial one
+          // was stopped above. Neither permits another full refund or an authorization void.
+          return undefined;
         } else if (payment.authorization?.status === 'AUTHORIZED') {
           if(state.collection.protocolVersion===2 && !payment.void && payment.authorization.providerId){const existing=Object.values(state.operations).find(op=>op.kind==='void'&&op.parentProviderId===payment.authorization!.providerId);if(existing){plan.payments[assignment.buyerId]!.voidOperationId=existing.id;return undefined;}}
           if (!payment.void && payment.authorization.providerId) return this.prepareOperation(state, plan, assignment.buyerId, 'void', payment.authorization.providerId);
@@ -930,7 +956,7 @@ export class LotSplitEngine {
   }
   async reconcile(userId: UserId, operationId?: string) {
     const state = this.snapshot();
-    const operations = operationId ? [state.operations[operationId]].filter(Boolean) : Object.values(state.operations).filter(op => isUnknown(op));
+    const operations = operationId ? [state.operations[operationId]].filter(Boolean) : Object.values(state.operations).filter(op => isUnknown(op) || state.paymentObservations?.[op.id]?.checkNeeded);
     if (operationId && !operations.length) throw new DomainError('NOT_FOUND', 'Operation not found.', 404);
     if (operations.some(op => userId !== 'kasia' && op.buyerId !== userId)) throw new DomainError('FORBIDDEN', 'You can check only your own operations.', 403);
     for (const operation of operations) await this.reconcileOperation(operation.id);
@@ -951,6 +977,9 @@ export class LotSplitEngine {
       const payment = this.payment(state, plan, failed.buyerId);
       const current = failed.kind === 'refund' ? payment.refund : payment.void;
       if (current?.id !== failed.id) throw new DomainError('STALE_OPERATION', 'This operation has already been replaced by a newer attempt.', 409);
+      if ((failed.kind === 'refund' && payment.capture?.status !== 'COMPLETED') ||
+        (failed.kind === 'void' && (payment.authorization?.status !== 'AUTHORIZED' || payment.authorization.checkNeeded)))
+        throw new DomainError('RETRY_NOT_ALLOWED', 'The provider reported a payment change. Check the existing resource before requesting another reversal.', 409);
       return this.prepareOperation(state, plan, failed.buyerId, failed.kind, failed.parentProviderId);
     });
     await this.dispatch(operation);
@@ -963,6 +992,7 @@ export class LotSplitEngine {
       const failed = state.operations[operationId];
       if (!failed || failed.kind !== 'authorize' || failed.buyerId !== buyerId || failed.status !== 'FAILED')
         throw new DomainError('RETRY_NOT_ALLOWED', 'Choose your existing failed authorization. An unknown result must be checked first.', 409);
+      if (state.paymentObservations?.[failed.id]) throw new DomainError('RETRY_NOT_ALLOWED', 'The existing authorization resource must be reconciled without repeating its command.', 409);
       const plan = this.requireCurrent(state, failed.planId); const payment = this.payment(state, plan, buyerId);
       if (payment.authorization?.id !== failed.id || !payment.order?.providerId || failed.parentProviderId !== payment.order.providerId)
         throw new DomainError('STALE_OPERATION', 'This authorization no longer belongs to your current order.', 409);
@@ -979,7 +1009,9 @@ export class LotSplitEngine {
     return { operationId: operation.id };
   }
   private async reconcileOperation(operationId: string) {
-    const state = this.snapshot(); const operation = state.operations[operationId]; if (!operation || isFinal(operation)) return;
+    const state = this.snapshot(); const operation = state.operations[operationId];
+    if (state.paymentObservations?.[operationId]) { await this.reconcileObservation(operationId); return; }
+    if (!operation || isFinal(operation)) return;
     this.mutate(s => { s.operations[operationId].reconcileAttempts++; s.operations[operationId].updatedAt = this.time(); });
     try {
       let result: ProviderResult;
@@ -1021,20 +1053,102 @@ export class LotSplitEngine {
       this.mutate(s => { const op = s.operations[operationId]; if (!isFinal(op)) { op.status = 'UNKNOWN'; op.checkNeeded = true; op.lastError = 'We are still checking the result of the existing operation.'; op.providerError = providerErrorInfo(error); } });
     }
   }
+  /** Lifecycle checks only GET the exact saved resource; they never replay its command. */
+  private async reconcileObservation(operationId: string) {
+    const state = this.snapshot(); const operation = state.operations[operationId];
+    const observation = state.paymentObservations?.[operationId];
+    if (!operation || !observation?.checkNeeded) return;
+    this.mutate(s => { s.operations[operationId].reconcileAttempts++; });
+    try {
+      const provider = this.options.paymentProvider;
+      if (!provider) throw new DomainError('PAYPAL_NOT_CONFIGURED', 'PayPal sandbox is not configured.', 503);
+      const result = operation.kind === 'authorize' ? await provider.getAuthorization(observation.providerId) : await provider.getCapture(observation.providerId);
+      if (result.providerId !== observation.providerId) throw new PayPalProviderError('PAYPAL_ID_MISMATCH', 'The provider returned a different resource.', true);
+      if (!isFinal(operation)) this.applyResult(operationId, result);
+      this.mutate(s => {
+        const current = s.paymentObservations![operationId];
+        // Once release is confirmed, a delayed positive response cannot resurrect it.
+        if (!current.checkNeeded && ['VOIDED', 'FAILED', 'CANCELLED'].includes(current.status)) return;
+        const exactAmount = result.amountCents === operation.amountCents && result.currency === operation.currency;
+        const positive = result.status === (operation.kind === 'authorize' ? 'AUTHORIZED' : 'COMPLETED') && exactAmount;
+        const released = operation.kind === 'authorize' ? ['VOIDED', 'FAILED', 'CANCELLED'].includes(result.status)
+          : exactAmount && (['FAILED', 'CANCELLED'].includes(result.status) || result.rawStatus === 'REFUNDED');
+        current.status = released ? (operation.kind === 'capture' ? 'FAILED' : result.status) : positive && !current.adverseEventType ? result.status : 'UNKNOWN';
+        current.checkNeeded = current.status === 'UNKNOWN'; current.updatedAt = this.time(); current.rawStatus = result.rawStatus;
+        current.expiresAt = result.expiresAt ?? current.expiresAt;
+        current.lastError = current.checkNeeded
+          ? 'PayPal reported a payment change. Its current result still needs checking; no payment command will be repeated.'
+          : released ? 'PayPal confirmed that this payment resource is no longer available. The original operation remains in the payment history.' : undefined;
+        if (operation.kind === 'capture' && current.status !== 'COMPLETED') {
+          // A confirmed full reversal enters the existing failed-group compensation
+          // path: settle the other buyers, never refund this externally released capture.
+          // Unknown, partial, or amount-mismatched reads remain reconciling instead.
+          for (const plan of s.plans) if (plan.status === 'paid' && plan.payments[operation.buyerId]?.captureOperationId === operationId) plan.status = 'reconciling';
+        }
+      });
+    } catch {
+      this.mutate(s => {
+        const current = s.paymentObservations![operationId];
+        if (!current.checkNeeded && ['VOIDED', 'FAILED', 'CANCELLED'].includes(current.status)) return;
+        current.status = 'UNKNOWN'; current.checkNeeded = true; current.updatedAt = this.time();
+        current.lastError = 'We are checking the payment change reported by PayPal. No payment command will be repeated.';
+      });
+    }
+  }
   /** Called only after the route verifies the PayPal signature. A duplicate event has no new effect. */
   async verifiedWebhook(event: unknown) {
     if (this.options.mode !== 'sandbox') throw new DomainError('SANDBOX_ONLY', 'PayPal webhooks are supported only in sandbox mode.', 409);
-    const data = event as { id?: string; resource?: { id?: string; supplementary_data?: { related_ids?: { authorization_id?: string; order_id?: string; capture_id?: string } } } };
+    const data = event as { id?: string; event_type?: string; resource?: { id?: string; links?: { rel?: unknown; href?: unknown }[]; supplementary_data?: { related_ids?: { authorization_id?: string; order_id?: string; capture_id?: string } } } };
     if (!data?.id || typeof data.id !== 'string') throw new DomainError('INVALID_WEBHOOK', 'Invalid event.');
+    if (this.snapshot().webhookEventIds.includes(data.id)) return;
     const match = this.mutate(state => {
       if (state.webhookEventIds.includes(data.id!)) return [];
       state.webhookEventIds.push(data.id!);
+      const type = typeof data.event_type === 'string' ? data.event_type : '';
+      const resourceId = typeof data.resource?.id === 'string' && data.resource.id ? data.resource.id : undefined;
+      if (!resourceId) return [];
       const related = data.resource?.supplementary_data?.related_ids;
-      const matches = Object.values(state.operations).filter(op => op.providerId === data.resource?.id ||
-        (op.kind === 'capture' && !!related?.authorization_id && op.parentProviderId === related.authorization_id) ||
-        (op.kind === 'authorize' && !!related?.order_id && op.parentProviderId === related.order_id) ||
-        (op.kind === 'refund' && !!related?.capture_id && op.parentProviderId === related.capture_id));
-      for (const op of matches) if (!op.providerId && data.resource?.id) op.providerId = data.resource.id;
+      const authorizationEvent = type.startsWith('PAYMENT.AUTHORIZATION.');
+      const refundEvent = type === 'PAYMENT.CAPTURE.REFUNDED' || type.startsWith('PAYMENT.REFUND.');
+      const captureEvent = type.startsWith('PAYMENT.CAPTURE.') && !refundEvent;
+      const orderEvent = type.startsWith('CHECKOUT.ORDER.');
+      // Refund resources may identify their capture only through the canonical
+      // sandbox `up` link. Extract an ID for local matching; never request this URL.
+      const linkedCaptureIds = new Set(refundEvent && Array.isArray(data.resource?.links) ? data.resource.links.flatMap(link => {
+        if (!link || link.rel !== 'up' || typeof link.href !== 'string') return [];
+        const found = /^https:\/\/api(?:-m)?\.sandbox\.paypal\.com\/v2\/payments\/captures\/([A-Za-z0-9_-]{1,128})$/.exec(link.href);
+        return found && found[0] === link.href ? [found[1]] : [];
+      }) : []);
+      const captureId = related?.capture_id ?? (linkedCaptureIds.size === 1 ? [...linkedCaptureIds][0] : undefined);
+      const adverse = /\.(VOIDED|EXPIRED|REVERSED|REFUNDED|PARTIALLY_REFUNDED|DECLINED|DENIED|FAILED|CANCELLED)$/.test(type);
+      const currentUnidentified = (op: PaymentOperation) => !op.providerId && !isFinal(op) &&
+        state.plans.some(plan => {
+          const payment = plan.payments[op.buyerId];
+          return payment && (op.kind === 'authorize' ? payment.authorizationOperationId : op.kind === 'capture' ? payment.captureOperationId : payment.refundOperationId) === op.id;
+        });
+      const matches = Object.values(state.operations).filter(op => {
+        if (authorizationEvent) return (op.kind === 'authorize' && (op.providerId === resourceId ||
+          (currentUnidentified(op) && !!related?.order_id && op.parentProviderId === related.order_id))) || (op.kind === 'void' && op.parentProviderId === resourceId);
+        if (captureEvent) return op.kind === 'capture' && (op.providerId === resourceId ||
+          (currentUnidentified(op) && !!related?.authorization_id && op.parentProviderId === related.authorization_id));
+        if (refundEvent) return (op.kind === 'refund' && (op.providerId === resourceId ||
+          (currentUnidentified(op) && !!captureId && op.parentProviderId === captureId))) ||
+          (op.kind === 'capture' && !!captureId && op.providerId === captureId);
+        return orderEvent && ((op.kind === 'order' && op.providerId === resourceId) || (op.kind === 'authorize' && op.parentProviderId === resourceId));
+      });
+      for (const op of matches) {
+        if (!op.providerId && ((authorizationEvent && op.kind === 'authorize') || (captureEvent && op.kind === 'capture') || (refundEvent && op.kind === 'refund'))) op.providerId = resourceId;
+        if (!['authorize', 'capture'].includes(op.kind) || !op.providerId) continue;
+        const existing = state.paymentObservations?.[op.id];
+        if (existing && !existing.checkNeeded && ['VOIDED', 'FAILED', 'CANCELLED'].includes(existing.status)) continue;
+        const observation: PaymentResourceObservation = { providerId: op.providerId, status: 'UNKNOWN', checkNeeded: true, updatedAt: this.time(),
+          adverseEventType: existing?.adverseEventType ?? (adverse ? type : undefined),
+          lastError: 'We are checking the payment change reported by PayPal. No payment command will be repeated.' };
+        (state.paymentObservations ??= {})[op.id] = observation;
+        if (op.kind === 'capture' && adverse) for (const plan of state.plans) {
+          if (plan.status === 'paid' && plan.payments[op.buyerId]?.captureOperationId === op.id) plan.status = 'reconciling';
+        }
+      }
       return matches.map(op => op.id);
     });
     for (const id of match) await this.reconcileOperation(id);

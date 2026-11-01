@@ -110,6 +110,8 @@ export interface PaymentOperation {
   lastError?: string;
   providerError?: { code: string; httpStatus?: number; debugId?: string };
   checkNeeded: boolean;
+  /** Read-model warning; successful command history stays immutable. */
+  providerChange?: boolean;
   reconcileAttempts: number;
   expiresAt?: string;
 }
