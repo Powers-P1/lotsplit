@@ -2,7 +2,7 @@ import express from 'express';
 import { config, parse } from 'dotenv';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Server } from 'node:http';
 import { createApiRouter } from './routes.js';
 import { LotSplitEngine, type DomainState } from './domain.js';
@@ -34,6 +34,17 @@ if (Boolean(judgeUsername) !== Boolean(judgePassword) || judgeUsername.includes(
   throw new Error('Set both JUDGE_ACCESS_USERNAME and JUDGE_ACCESS_PASSWORD to enable private judging access. The username cannot contain a colon.');
 const privateJudging = Boolean(judgeUsername);
 const expectedJudgeCredentials = createHash('sha256').update(`${judgeUsername}:${judgePassword}`).digest();
+const judgeSessionCookie = 'lotsplit_judge';
+const judgeSessionDuration = 7 * 86400000;
+function judgeSessionSignature(expires: string) {
+  return createHmac('sha256', expectedJudgeCredentials).update(`lotsplit-judge:${origin}:${expires}`).digest();
+}
+function hasJudgeSession(cookieHeader: string | undefined) {
+  const ticket = cookieHeader?.split(';').map(value => value.trim()).find(value => value.startsWith(`${judgeSessionCookie}=`))?.slice(judgeSessionCookie.length + 1);
+  const match = ticket && /^(\d{13})\.([a-f0-9]{64})$/.exec(ticket);
+  if (!match || Number(match[1]) <= Date.now() || Number(match[1]) > Date.now() + judgeSessionDuration) return false;
+  return timingSafeEqual(Buffer.from(match[2], 'hex'), judgeSessionSignature(match[1]));
+}
 const aiDailyRequestLimit = Number(process.env.AI_DAILY_REQUEST_LIMIT || 100);
 if (!Number.isSafeInteger(aiDailyRequestLimit) || aiDailyRequestLimit < 1)
   throw new Error('AI_DAILY_REQUEST_LIMIT must be a positive integer.');
@@ -73,9 +84,18 @@ app.use((_req, res, next) => {
 app.use((req, res, next) => {
   if (!privateJudging || (req.path === '/api/health' && ['GET', 'HEAD'].includes(req.method)) ||
     (req.method === 'POST' && req.path === '/api/payments/webhook')) return next();
+  // A same-site session survives a cross-origin PayPal return without relying on
+  // the browser forwarding its HTTP Authorization header. It grants no app role.
+  if (hasJudgeSession(req.headers.cookie)) return next();
   const authorization = req.headers.authorization;
   const match = authorization && /^Basic ([A-Za-z0-9+/]+={0,2})$/i.exec(authorization);
-  if (match && timingSafeEqual(createHash('sha256').update(Buffer.from(match[1], 'base64')).digest(), expectedJudgeCredentials)) return next();
+  if (match && timingSafeEqual(createHash('sha256').update(Buffer.from(match[1], 'base64')).digest(), expectedJudgeCredentials)) {
+    const expires = String(Date.now() + judgeSessionDuration);
+    res.cookie(judgeSessionCookie, `${expires}.${judgeSessionSignature(expires).toString('hex')}`, {
+      httpOnly: true, secure: origin.startsWith('https:'), sameSite: 'lax', path: '/', maxAge: judgeSessionDuration,
+    });
+    return next();
+  }
   res.setHeader('WWW-Authenticate', 'Basic realm="LOTSPLIT judging", charset="UTF-8"');
   res.setHeader('Cache-Control', 'no-store');
   res.status(401).json({ code: 'JUDGE_ACCESS_REQUIRED', error: 'Use the private judging credentials supplied with the submission.' });

@@ -155,6 +155,43 @@ test('only the exact webhook POST bypasses private judging and still requires it
   }
 });
 
+test('judge sign-in survives a merchant return without Authorization and does not grant an application role', async () => {
+  const server = await isolatedServer({ JUDGE_ACCESS_USERNAME: 'jury', JUDGE_ACCESS_PASSWORD: 'hosting-test-password' });
+  try {
+    await server.ready();
+    const login = await fetch(`${server.origin}/`, { headers: { authorization: basic } });
+    assert.equal(login.status, 200);
+    const setCookie = login.headers.get('set-cookie') || '';
+    assert.match(setCookie, /HttpOnly/i);
+    assert.match(setCookie, /SameSite=Lax/i);
+    const cookie = setCookie.split(';')[0];
+    assert.match(cookie, /^lotsplit_judge=\d{13}\.[a-f0-9]{64}$/);
+    const returned = await fetch(`${server.origin}/payment/return?operationId=existing-order`, { headers: { cookie } });
+    assert.equal(returned.status, 200, 'The authenticated browser must not face a new Basic challenge after PayPal');
+    assert.match(await returned.text(), /Private test build/);
+    const view = await fetch(`${server.origin}/api/state`, { headers: { cookie } });
+    assert.equal(view.status, 200);
+    assert.equal((await view.json()).authenticated, false, 'The gate session must not become buyer or seller consent');
+    for (const invalid of [cookie.slice(0, -1) + (cookie.endsWith('0') ? '1' : '0'), cookie.replace(/=\d{13}\./, '=1000000000000.'), 'lotsplit_judge=malformed']) {
+      assert.equal((await fetch(`${server.origin}/payment/return?operationId=existing-order`, { headers: { cookie: invalid } })).status, 401);
+    }
+  } finally { await server.dispose(); }
+});
+
+test('a hosted judge session is Secure and is invalidated when judging credentials change', async () => {
+  const server = await isolatedServer({ APP_ORIGIN: 'https://review.example', JUDGE_ACCESS_USERNAME: 'jury', JUDGE_ACCESS_PASSWORD: 'hosting-test-password' });
+  const changed = await isolatedServer({ APP_ORIGIN: 'https://review.example', JUDGE_ACCESS_USERNAME: 'jury', JUDGE_ACCESS_PASSWORD: 'different-hosting-test-password' });
+  try {
+    await server.ready(); await changed.ready();
+    const login = await fetch(`${server.origin}/`, { headers: { authorization: basic } });
+    const setCookie = login.headers.get('set-cookie') || '';
+    assert.match(setCookie, /; Secure/i);
+    const cookie = setCookie.split(';')[0];
+    assert.equal((await fetch(`${server.origin}/payment/return`, { headers: { cookie } })).status, 200);
+    assert.equal((await fetch(`${changed.origin}/payment/return`, { headers: { cookie } })).status, 401);
+  } finally { await server.dispose(); await changed.dispose(); }
+});
+
 test('gate is off by default and unauthenticated AI requests cannot exhaust the authenticated allowance', async () => {
   const server = await isolatedServer();
   try {
