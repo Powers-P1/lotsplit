@@ -6,5 +6,5 @@ data/
 !.env.example
 *.log
 .DS_Store
-**/organizer-access.json
+**/organizer-access*.json
 

@@ -7,6 +7,7 @@ import { useApplication, useRoute } from './api';
 import type { Mutate } from './api';
 import { Button, Notice } from './components';
 import BuyerFlow from './BuyerFlow';
+import AppV2 from './v2/AppV2';
 
 const OrganizerFlow = lazy(() => import('./organizer/OrganizerFlow'));
 const roles: DemoAccess[] = [
@@ -50,6 +51,7 @@ export default function App() {
   };
   if ((loading || busy) && !state) return <div className="application-loading"><span className="brand">LOTSPLIT</span><Loader2 size={26} className="spin" /><p>{busy ? 'Checking authorization status…' : 'Opening your bundle…'}</p></div>;
   if (!state) return <div className="application-loading"><span className="brand">LOTSPLIT</span><Notice tone="error">{error || 'Unable to connect to the app.'}</Notice><Button onClick={() => void refresh()}>Try again</Button></div>;
+  if(state.conceptVersion===2) return <AppV2 app={app} routing={{route,navigate}}/>;
   const isBuyer = state.authenticated && state.role === 'buyer';
   return <div className={`application ${isBuyer || !state.authenticated ? 'buyer-application' : 'organizer-application'} ${!state.authenticated && state.mode === 'rehearsal' ? 'entry-application' : ''}`}>
     <div className={`mode-bar ${state.mode === 'rehearsal' ? 'mode-rehearsal' : 'mode-sandbox'}`}><span><FlaskConical size={13} />{state.mode === 'rehearsal' ? 'Demo mode · simulated payments' : 'PayPal sandbox — test payments'}</span>{state.mode === 'rehearsal' ? <button onClick={() => setDemo(true)}>Try the demo</button> : null}</div>

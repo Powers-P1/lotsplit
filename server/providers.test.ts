@@ -24,7 +24,7 @@ function aiResponse(value: unknown, options: { model?: string; finish?: string }
     choices: [{ finish_reason: options.finish ?? 'stop', message: { content: JSON.stringify(value) } }],
     usage: { prompt_tokens: 80, completion_tokens: 40, total_tokens: 120 } });
 }
-const preferences = { preferredIds: ['01'], alternativeIds: ['02'], rejectedIds: [], maxTotalCents: 20_000,
+const preferences = { preferredIds: ['01'], alternativeIds: ['02'], rejectedIds: [], rejectionEvidence: [], maxTotalCents: 20_000,
   noAlternativesExplicit: false, ambiguities: [] };
 const catalog = [{ id: '01', name: 'Pierwszy przedmiot' }, { id: '02', name: 'Drugi przedmiot' }];
 const pngBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
@@ -74,6 +74,20 @@ test('PayPal refuses a live buyer approval link even in an otherwise successful 
     links: [{ rel: 'approve', href: 'https://www.paypal.com/checkoutnow?token=ORDER1' }] }));
   await assert.rejects(provider.createOrder({ amountCents: 18_000, currency: 'PLN', description: 'Plan', customId: 'op',
     returnUrl: 'http://localhost/return', cancelUrl: 'http://localhost/cancel', idempotencyKey: 'order' }), { code: 'UNSAFE_APPROVAL_URL', uncertain: true });
+});
+
+test('an already-voided provider error confirms cancellation only after GET of the exact authorization',async()=>{
+  const {provider,calls}=paypalMock(call=>call.init.method==='POST'?json({name:'UNPROCESSABLE_ENTITY',details:[{issue:'PREVIOUSLY_VOIDED'}]},422):json({id:'AUTH1',status:'VOIDED',amount:money}));
+  const result=await provider.voidAuthorization('AUTH1','saved-void-key');assert.equal(result.status,'VOIDED');
+  assert.equal(calls.filter(c=>c.url.endsWith('/AUTH1/void')).length,1);assert.equal(calls.filter(c=>c.url.endsWith('/AUTH1')&&c.init.method==='GET').length,1);
+});
+test('an already-voided error cannot fabricate success when the provider GET still says authorized',async()=>{
+  const {provider}=paypalMock(call=>call.init.method==='POST'?json({name:'UNPROCESSABLE_ENTITY',details:[{issue:'PREVIOUSLY_VOIDED'}]},422):json({id:'AUTH1',status:'CREATED',amount:money}));
+  await assert.rejects(provider.voidAuthorization('AUTH1','saved-void-key'),{code:'UNPROCESSABLE_ENTITY'});
+});
+test('a failed GET after an already-voided error remains uncertain rather than confirmed or safely failed',async()=>{
+  const {provider}=paypalMock(call=>{if(call.init.method==='POST')return json({name:'UNPROCESSABLE_ENTITY',details:[{issue:'PREVIOUSLY_VOIDED'}]},422);throw new TypeError('lost read');});
+  await assert.rejects(provider.voidAuthorization('AUTH1','saved-void-key'),{code:'PAYPAL_VOID_RESULT_UNKNOWN',uncertain:true});
 });
 
 test('A callback without real PayPal approval never authorizes an order', async () => {
@@ -221,6 +235,51 @@ test('AI service errors and truncated JSON never become an accepted proposal', a
     await assert.rejects(provider.parsePreferences('Chcę pierwszy', catalog), (error: unknown) => error instanceof AiProviderError);
     assert.equal(calls, 1);
   }
+});
+
+test('AI cannot turn unmentioned goods or invented refusal wording into exclusions',async()=>{
+  for(const rejectionEvidence of [[],[{itemId:'02',quote:'No second item.'}],[{itemId:'02',quote:'the second item'}]]){
+    const provider=new NebiusAiProvider({apiKey:'test-key',fetch:(async()=>aiResponse({...preferences,alternativeIds:[],rejectedIds:['02'],rejectionEvidence})) as typeof fetch});
+    const proposal=await provider.parsePreferences('I want the first item. The second item may be useful later.',catalog);
+    assert.deepEqual(proposal.preferredIds,['01']);assert.deepEqual(proposal.rejectedIds,[]);assert.ok(proposal.ambiguities.length);assert.equal(proposal.requiresHumanConfirmation,true);
+  }
+});
+
+test('AI preserves explicit English and Polish refusals with exact buyer wording',async()=>{
+  for(const quote of ["I do not want the second item.",'Nie chcę drugiego przedmiotu.']){
+    const provider=new NebiusAiProvider({apiKey:'test-key',fetch:(async()=>aiResponse({...preferences,alternativeIds:[],rejectedIds:['02'],rejectionEvidence:[{itemId:'02',quote}]})) as typeof fetch});
+    const proposal=await provider.parsePreferences('I want the first item. '+quote,catalog);
+    assert.deepEqual(proposal.rejectedIds,['02']);assert.deepEqual(proposal.rejectionEvidence,[{itemId:'02',quote}]);
+  }
+});
+
+test('AI refusal provenance cannot misread an explicit permission as a prohibition',async()=>{
+  const quote="I don't mind the second item.";
+  const provider=new NebiusAiProvider({apiKey:'test-key',fetch:(async()=>aiResponse({...preferences,alternativeIds:[],rejectedIds:['02'],rejectionEvidence:[{itemId:'02',quote}]})) as typeof fetch});
+  const proposal=await provider.parsePreferences('I want the first item. '+quote,catalog);assert.deepEqual(proposal.rejectedIds,[]);
+});
+
+test('AI can quote a category in an actual refusal but cannot borrow a negation from another sentence',async()=>{
+  for(const [text,quote,expected]of [
+    ['I need the first item. No furniture, storage, or lamps.','furniture',['02']],
+    ['No furniture, storage, or lamps.','furniture',['02']],
+    ['No furniture. The second item may be useful later.','The second item',[]],
+    ['The second item is fine, but no furniture.','The second item',[]],
+    ['No furniture, but the second item is fine.','the second item',[]],
+  ]as const){
+    const provider=new NebiusAiProvider({apiKey:'test-key',fetch:(async()=>aiResponse({...preferences,alternativeIds:[],rejectedIds:['02'],rejectionEvidence:[{itemId:'02',quote}]})) as typeof fetch});
+    const proposal=await provider.parsePreferences(text,catalog);assert.deepEqual(proposal.rejectedIds,expected);
+    if(expected.length)assert.ok(text.includes(proposal.rejectionEvidence![0].quote));
+  }
+});
+
+test('AI recovers explicitly named refusals from original wording, without inventing restrictions on unnamed goods',async()=>{
+  const goods=[{id:'04',name:'Corded drill'},{id:'10',name:'Box of clamps'},{id:'11',name:'Hand tools'}];
+  const text='I need the corded drill. I do not want the Box of clamps or Hand tools.';
+  const output={...preferences,preferredIds:['04'],alternativeIds:[],rejectedIds:['10','11'],rejectionEvidence:[{itemId:'10',quote:'I do not want Box of clamps'},{itemId:'11',quote:'hand tools'}]};
+  const provider=new NebiusAiProvider({apiKey:'test-key',fetch:(async()=>aiResponse(output)) as typeof fetch});
+  const proposal=await provider.parsePreferences(text,goods,24);assert.deepEqual(proposal.rejectedIds,['10','11']);
+  assert.ok(proposal.rejectionEvidence!.every(e=>text.includes(e.quote)));assert.deepEqual(proposal.ambiguities,[]);
 });
 
 test('Vision sends the actual uploaded photo and returns unconfirmed, source-bound item proposals', async () => {

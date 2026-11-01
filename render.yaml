@@ -39,6 +39,6 @@ services:
       - key: NEBIUS_BASE_URL
         value: https://api.tokenfactory.nebius.com/v1
       - key: NEBIUS_TEXT_MODEL
-        value: Qwen/Qwen3-30B-A3B-Instruct-2507
+        value: nvidia/nemotron-3-super-120b-a12b
       - key: NEBIUS_VISION_MODEL
         value: nvidia/Nemotron-3.5-Super-VL

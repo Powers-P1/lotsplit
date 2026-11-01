@@ -1,13 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type {
-  AllocationPlan, AppMode, AppView, Assignment, BuyerId, BuyerPayment, Collection, CollectionItem,
+  AllocationPlan, AppMode, AppView, Assignment, BuyerId, BuyerPayment, Collection, CollectionItem, OrganizerView,
   Consent, DeliveryAddress, Gates, NoSolution, OperationKind, OperationStatus, PackingPackage,
-  Participant, PaymentOperation, PaymentView, Preferences, PriorPlanPaymentBlocker, RehearsalScenario, UserId,
+  Participant, PaymentOperation, PaymentView, Preferences, PriorPlanPaymentBlocker, RehearsalScenario, UserId, CheckedQuestion,ImageRegion,
 } from '../shared/types.js';
 import { createCollection, createParticipants, DEMO_ACCESS, getDemoDefaults, sourceForMode, userForId } from './seed.js';
 import { DEFAULT_DEMO_COLLECTION_ID, isDemoCollectionId, type DemoCollectionId } from '../shared/demo-collections.js';
 import { PayPalProviderError, type CreateOrderInput, type PaymentProvider, type ProviderResult } from './paypal.js';
 import { SqliteStore } from './store.js';
+import { createV2Collection, v2Participants, v2Defaults, v2User, V2_ACCESS, V2_BUYERS } from './v2-catalog.js';
+import { agentContextDigest, solveWholeBaskets, V2_CONTRACT, wholeBasketDigest } from './v2-rules.js';
+import { V2_EXAMPLES } from '../shared/v2-examples.js';
 
 export class DomainError extends Error {
   constructor(public code: string, message: string, public httpStatus = 400, public fields?: Record<string, string>) { super(message); }
@@ -30,6 +33,8 @@ interface SavedPaymentCommand {
 const SAFE_REPLAY_WINDOW_MS = 5 * 60 * 60 * 1000;
 const DISPATCH_LEASE_MS = 2 * 60 * 1000;
 export interface DomainState {
+  paymentDeadline?: string;
+  agentQuestion?: CheckedQuestion;
   schemaVersion: 1;
   revision: number;
   mode: AppMode;
@@ -47,6 +52,8 @@ export interface DomainState {
   rehearsalCaptureOutcome: 'success' | 'unknown-ola' | 'failure-ola';
 }
 export interface EngineOptions {
+  conceptVersion?: 2;
+  recipientId?: string;
   mode: AppMode;
   paymentProvider?: PaymentProvider;
   aiConfigured?: boolean;
@@ -74,8 +81,14 @@ const textField = (value: unknown, field: string, maximum = 2000): string => {
 };
 const isUnknown = (op: PaymentOperation | undefined) => !!op && ['STARTED', 'UNKNOWN', 'PENDING'].includes(op.status);
 const isFinal = (op: PaymentOperation | undefined) => !!op && ['COMPLETED', 'AUTHORIZED', 'VOIDED', 'FAILED', 'CANCELLED'].includes(op.status);
-const consentValid = (plan: AllocationPlan, assignment: Assignment) => plan.consents[assignment.buyerId]?.termsDigest === assignment.termsDigest;
+const consentValid = (plan: AllocationPlan, assignment: Assignment) => plan.consents[assignment.buyerId]?.termsDigest === assignment.termsDigest && (plan.contractVersion!==2 || plan.consents[assignment.buyerId]?.contract==='own-basket-group-v2');
 const sorted = (ids: string[]) => [...ids].sort();
+function imageRegion(value:unknown):ImageRegion|undefined {
+  if(value===undefined||value===null)return undefined;
+  const r=value as ImageRegion;
+  if(!r||typeof r!=='object'||![r.x,r.y,r.width,r.height].every(n=>typeof n==='number'&&Number.isFinite(n))||r.x<0||r.y<0||r.x>=1||r.y>=1||r.width<=0||r.height<=0||r.x+r.width>1.000001||r.y+r.height>1.000001)throw new DomainError('INVALID_IMAGE_REGION','The item crop does not fit the photo. Choose a separate item photo.');
+  return {x:r.x,y:r.y,width:Math.min(r.width,1-r.x),height:Math.min(r.height,1-r.y)};
+}
 const clone = <T>(value: T): T => structuredClone(value);
 function providerErrorInfo(error: unknown): PaymentOperation['providerError'] {
   if (!(error instanceof PayPalProviderError)) return undefined;
@@ -89,6 +102,7 @@ function providerErrorInfo(error: unknown): PaymentOperation['providerError'] {
 
 /** The digest deliberately excludes version and the identities of the other buyers. */
 export function termsDigest(collection: Collection, buyerId: BuyerId, itemIds: string[], totalCents: number): string {
+  if (collection.protocolVersion === 2) return wholeBasketDigest(collection, buyerId, itemIds, totalCents);
   const items = sorted(itemIds).map(id => {
     const item = collection.items.find(i => i.id === id)!;
     return { id: item.id, name: item.name, description: item.description, condition: item.condition, imageUrl: item.imageUrl, shareCents: item.shareCents };
@@ -101,6 +115,7 @@ export function termsDigest(collection: Collection, buyerId: BuyerId, itemIds: s
 
 /** Exact bounded solver: every buyer gets six allowed items; fixed prices never use budget as a bid. */
 export function solveAllocation(collection: Collection, participants: Participant[]): Assignment[] | NoSolution {
+  if (collection.protocolVersion === 2) return solveWholeBaskets(collection, participants);
   const buyers = participants.filter(p => p.active);
   const limitsTotalCents = buyers.reduce((sum, p) => sum + (p.preferences?.budgetCents ?? 0), 0);
   const previousPreferred = new Set(buyers.flatMap(p => p.preferences?.preferredItemIds ?? []));
@@ -210,9 +225,18 @@ export class LotSplitEngine {
   private readonly baseUrl: string;
   constructor(readonly store: SqliteStore<DomainState>, readonly options: EngineOptions) {
     this.now = options.now ?? (() => new Date()); this.baseUrl = options.baseUrl ?? 'http://localhost:5173';
-    const state = store.initialize(createInitialState(options.mode, this.now()));
+    const initial = options.conceptVersion === 2 ? this.freshV2(options.mode) : createInitialState(options.mode, this.now());
+    const state = store.initialize(initial);
     if (state.mode !== options.mode) throw new Error('Stored mode differs from configured mode. Use a separate LOTSPLIT_DB for each mode.');
+    if (options.conceptVersion === 2 && state.collection.protocolVersion !== 2) throw new Error('V2 requires its own database. Historical payment stores are not migrated automatically.');
+    if(options.conceptVersion===2 && options.recipientId && state.collection.seller?.recipientId!==options.recipientId) throw new Error('Configured merchant identity differs from the stored V2 recipient. Reuse the intended Sandbox application or start a separate workspace.');
   }
+  private freshV2(mode: AppMode, collectionId: DemoCollectionId = 'workshop'): DomainState {
+    const collection = createV2Collection(this.now(), collectionId, this.options.recipientId);
+    return { schemaVersion:1, revision:0, mode, ...(mode==='rehearsal'?{rehearsalCollectionId:collectionId}:{}), collection,
+      participants:v2Participants(collection.buyerCount), plans:[], operations:{}, paymentCommands:{}, packing:[], webhookEventIds:[], invitationTokens:{}, rehearsalCaptureOutcome:'success' };
+  }
+  sessionUser(id: UserId) { const state=this.snapshot(); return state.collection.protocolVersion===2 ? v2User(id,state.participants) : userForId(id); }
   private time() { return this.now().toISOString(); }
   snapshot(): DomainState { return this.store.load()!; }
   private mutate<T>(change: (state: DomainState) => T): T {
@@ -239,7 +263,7 @@ export class LotSplitEngine {
     const p = plan.payments[buyerId] ?? {};
     return { order: this.op(state, p.orderOperationId), authorization: this.op(state, p.authorizationOperationId), capture: this.op(state, p.captureOperationId), void: this.op(state, p.voidOperationId), refund: this.op(state, p.refundOperationId) };
   }
-  private expired(state: DomainState) { return Date.parse(state.collection.reservationExpiresAt) <= this.now().getTime(); }
+  private expired(state: DomainState) { return Math.min(Date.parse(state.collection.reservationExpiresAt), state.paymentDeadline ? Date.parse(state.paymentDeadline) : Infinity) <= this.now().getTime(); }
   private captureStarted(state: DomainState) { return Object.values(state.operations).some(op => op.kind === 'capture'); }
   private editingAllowed(state: DomainState) {
     return !state.plans.some(plan => plan.assignments.some(a => {
@@ -254,10 +278,10 @@ export class LotSplitEngine {
       });
     }));
   }
-  private allAgreements(plan: AllocationPlan | undefined) { return !!plan && plan.assignments.length === 4 && plan.assignments.every(a => consentValid(plan, a)); }
+  private allAgreements(plan: AllocationPlan | undefined) { return !!plan && (plan.contractVersion===2?plan.assignments.length>=2:plan.assignments.length===4) && plan.assignments.every(a => consentValid(plan, a)); }
   private authorizationReady(state: DomainState, plan: AllocationPlan, assignment: Assignment) {
     const payment = this.payment(state, plan, assignment.buyerId); const auth = payment.authorization;
-    return auth?.status === 'AUTHORIZED' && auth.planId === plan.id && auth.buyerId === assignment.buyerId &&
+    return auth?.status === 'AUTHORIZED' && (state.collection.protocolVersion===2 ? auth.termsDigest===assignment.termsDigest && plan.consents[assignment.buyerId]?.contract===V2_CONTRACT : auth.planId===plan.id) && auth.buyerId === assignment.buyerId &&
       auth.amountCents === assignment.totalCents && auth.currency === state.collection.currency && !!auth.providerId &&
       (!auth.expiresAt || Date.parse(auth.expiresAt) > this.now().getTime()) && !payment.void && !payment.refund;
   }
@@ -270,10 +294,12 @@ export class LotSplitEngine {
         a.termsDigest === termsDigest(state.collection, a.buyerId, a.itemIds, a.totalCents));
   }
   private priorPaymentBlockers(state: DomainState, currentId: string): PriorPlanPaymentBlocker[] {
+    const current=state.plans.find(p=>p.id===currentId);
+    const retained=new Set(current ? Object.values(current.payments).flatMap(p=>Object.values(p ?? {})) : []);
     return state.plans.filter(p => p.id !== currentId).flatMap(plan => plan.assignments.flatMap(a => {
       const payment = this.payment(state, plan, a.buyerId);
       const operations = new Map<string, PaymentOperation>();
-      const add = (operation: PaymentOperation | undefined) => { if (operation) operations.set(operation.id, operation); };
+      const add = (operation: PaymentOperation | undefined) => { if (operation && !retained.has(operation.id)) operations.set(operation.id, operation); };
       for (const operation of Object.values(payment)) if (isUnknown(operation)) add(operation);
       if (payment.authorization?.status === 'AUTHORIZED' && payment.void?.status !== 'VOIDED' && payment.capture?.status !== 'COMPLETED') add(payment.void ?? payment.authorization);
       if (payment.capture?.status === 'COMPLETED' && payment.refund?.status !== 'COMPLETED') add(payment.refund ?? payment.capture);
@@ -297,23 +323,23 @@ export class LotSplitEngine {
       const participant = this.participant(state, buyerId); const own = plan?.assignments.find(a => a.buyerId === buyerId);
       const payment = plan ? this.payment(state, plan, buyerId) : {};
       if (!participant.active || !own) authorize = denied('You are not an active participant in the current plan.');
-      else if (!participant.address) authorize = denied('Add your delivery address.');
+      else if (collection.protocolVersion!==2 && !participant.address) authorize = denied('Add your delivery address.');
       else if (isUnknown(payment.order) || isUnknown(payment.authorization)) authorize = denied('We are checking the result of the existing operation.');
       else if (payment.authorization?.status === 'AUTHORIZED') authorize = denied('Authorization is ready. No payment has been captured.');
     }
     return {
       confirmCatalog: editable ? allowed() : denied('Payments are being settled.'),
-      solve: collection.catalogStatus !== 'confirmed' ? denied('Confirm the catalog and item shares first.') : !editable ? denied('Payments are being settled.') : allowed(),
+      solve: collection.catalogStatus !== 'confirmed' ? denied('Confirm the catalogue and fixed prices first.') : !editable ? denied('Payments are being settled.') : collection.protocolVersion===2 && !reservationOk ? denied('The reservation has ended.') : allowed(),
       sendPlan: !valid || plan.status !== 'draft' ? denied('Calculate a current, complete plan first.') : allowed(),
-      agree: !valid || !['sent'].includes(plan.status) ? denied('Waiting for the current plan to be sent.')
+      agree: collection.protocolVersion===2 && !reservationOk ? denied('The reservation has ended.') : !valid || !['sent'].includes(plan.status) ? denied('Waiting for the current plan to be sent.')
         : buyerId && !plan.assignments.some(a => a.buyerId === buyerId) ? denied('You are not a participant in this version.') : allowed(),
       authorize,
       capture: !valid || plan.status !== 'sent' ? denied('The plan is not ready for payment capture.') : !reservationOk ? denied('The collection reservation has expired.')
         : !allAgreed ? denied('Waiting for all valid agreements.') : previousBlocked ? denied('Previous operations need to be resolved.')
-        : !readyAuthorizations ? denied('Waiting for four valid authorizations for the correct amounts.') : !paymentReady ? denied('PayPal sandbox is not configured.') : allowed(),
-      packing: valid && plan.status === 'paid' && plan.assignments.length === 4 && plan.assignments.every(a => {
+        : !readyAuthorizations ? denied('Waiting for all valid authorizations for the exact amounts.') : !paymentReady ? denied('PayPal sandbox is not configured.') : allowed(),
+      packing: valid && plan.status === 'paid' && plan.assignments.length === active.length && plan.assignments.every(a => {
         const payment = this.payment(state, plan, a.buyerId); return payment.capture?.status === 'COMPLETED' && !payment.refund;
-      }) ? allowed() : denied('Packing requires four confirmed COMPLETED captures for one valid plan.'),
+      }) ? allowed() : denied('Preparation requires all confirmed COMPLETED captures for one valid plan.'),
       editPreferences: editable && collection.catalogStatus === 'confirmed' ? allowed() : denied(editable ? 'The catalog has not been confirmed yet.' : 'Payments are being settled.'),
       withdraw: editable ? allowed() : denied('Payment capture has started. Payments must be resolved first.'),
     };
@@ -324,7 +350,9 @@ export class LotSplitEngine {
     const state = this.snapshot();
     // A missing discriminator belongs to a historical illustration demo; do not migrate stored data on reads.
     const rehearsalCollectionId = state.mode === 'rehearsal' ? state.rehearsalCollectionId ?? 'illustrations' : undefined;
-    if (!userId) return { authenticated: false, mode: this.options.mode, rehearsalCollectionId, demoAccess: this.options.mode === 'rehearsal' ? clone(DEMO_ACCESS) : [], paymentConfigured: !!this.options.paymentProvider, aiConfigured: !!this.options.aiConfigured };
+    const v2=state.collection.protocolVersion===2;
+    const demoAccess=v2?V2_ACCESS.map(access=>({...access,name:access.role==='organizer'?state.collection.seller?.name??access.name:state.participants.find(p=>`demo-${p.id}`===access.inviteToken)?.name??access.name})):DEMO_ACCESS;
+    if (!userId) return { ...(v2?{conceptVersion:2 as const}:{}), authenticated: false, mode: this.options.mode, rehearsalCollectionId, demoAccess: this.options.mode === 'rehearsal' ? clone(demoAccess) : [], paymentConfigured: !!this.options.paymentProvider, aiConfigured: !!this.options.aiConfigured };
     const plan = this.current(state); const isOrganizer = userId === 'kasia';
     const gates = this.gates(state, isOrganizer ? undefined : userId);
     const progress = { activeBuyers: state.participants.filter(p => p.active).length, requiredBuyers: state.collection.buyerCount,
@@ -332,35 +360,45 @@ export class LotSplitEngine {
       agreements: plan?.status === 'invalidated' ? 0 : plan?.assignments.filter(a => consentValid(plan, a)).length ?? 0,
       authorizations: plan?.status === 'invalidated' ? 0 : plan?.assignments.filter(a => this.payment(state, plan, a.buyerId).authorization?.status === 'AUTHORIZED' && !this.payment(state, plan, a.buyerId).void).length ?? 0,
       captures: plan?.assignments.filter(a => this.payment(state, plan, a.buyerId).capture?.status === 'COMPLETED').length ?? 0 };
-    const base = { authenticated: true as const, mode: state.mode, rehearsalCollectionId, me: userForId(userId), revision: state.revision, progress, gates,
+    const base = { ...(v2?{conceptVersion:2 as const,paymentDeadline:state.paymentDeadline, demoAccess:state.mode==='rehearsal'?clone(demoAccess):[]}:{}), authenticated: true as const, mode: state.mode, rehearsalCollectionId, me: this.sessionUser(userId), revision: state.revision, progress, gates,
       reservationExpired: this.expired(state), paymentConfigured: !!this.options.paymentProvider, aiConfigured: !!this.options.aiConfigured,
       simulationNotice: state.mode === 'rehearsal' ? 'Payment rehearsal. Payments are simulated; there is no connection to PayPal.' : undefined };
     const previousFor = (buyerId: BuyerId) => {
       const older = state.plans.filter(p => p.version < (plan?.version ?? 0)).reverse().find(p => p.assignments.some(a => a.buyerId === buyerId));
       const assignment = older?.assignments.find(a => a.buyerId === buyerId);
-      return assignment ? { itemIds: assignment.itemIds, totalCents: assignment.totalCents } : undefined;
+      return assignment ? { itemIds: assignment.itemIds, totalCents: assignment.totalCents,...(v2&&older?{payment:this.payment(state,older,buyerId)}:{}) } : undefined;
     };
-    if (isOrganizer) return clone({ ...base, role: 'organizer', collection: state.collection,
-      participants: state.participants.map(p => gates.packing.allowed ? p : { ...p, address: undefined }),
+    const oldPlan=state.plans.filter(p=>p.version<(plan?.version??0)).at(-1);
+    let planCheck:OrganizerView['planCheck'];
+    if(v2&&isOrganizer){
+      if(!gates.solve.allowed)planCheck={status:'closed',unassignedItemIds:[]};
+      else if(progress.preferences!==progress.activeBuyers)planCheck={status:'waiting',unassignedItemIds:[]};
+      else if(state.noSolution?.code==='INCOMPLETE')planCheck={status:'incomplete',unassignedItemIds:[]};
+      else {const checked=solveWholeBaskets(state.collection,state.participants,plan?.assignments);planCheck=Array.isArray(checked)?{status:'complete',unassignedItemIds:[]}:{status:'blocked',unassignedItemIds:checked.unassignedItemIds};}
+    }
+    if (isOrganizer) return clone({ ...base,...(v2?{planCheck}:{}), role: 'organizer', collection: state.collection,
+      previousPlan:v2&&oldPlan?{id:oldPlan.id,version:oldPlan.version,buyers:oldPlan.assignments.map(a=>({buyerId:a.buyerId,name:this.participant(state,a.buyerId).name,amountCents:a.totalCents,payment:this.payment(state,oldPlan,a.buyerId)}))}:undefined,
+      participants: state.participants.map(p => v2 ? { ...p, address:undefined, preferences:p.preferences ? { ...p.preferences, budgetCents:0,description:undefined } : undefined } : gates.packing.allowed ? p : { ...p, address: undefined }),
       plan: plan ? { id: plan.id, version: plan.version, status: plan.status, createdAt: plan.createdAt, sentAt: plan.sentAt,
         failureReason: plan.failureReason, invalidationReason: plan.invalidationReason,
         assignments: plan.assignments.map(a => ({ ...a, buyerName: this.participant(state, a.buyerId).name,
-          budgetCents: this.participant(state, a.buyerId).preferences?.budgetCents ?? 0, consent: plan.consents[a.buyerId],
+          budgetCents: v2?0:this.participant(state, a.buyerId).preferences?.budgetCents ?? 0, consent: plan.consents[a.buyerId],
           payment: this.payment(state, plan, a.buyerId), previous: previousFor(a.buyerId) })) } : undefined,
-      noSolution: state.noSolution, invitations: state.participants.map(p => ({ buyerId: p.id, name: p.name,
+      noSolution: state.noSolution ? {...state.noSolution,...(v2?{limitsTotalCents:0,shortfallCents:0}:{})} : undefined, agentQuestion:v2 && state.agentQuestion?.contextDigest===agentContextDigest(state.collection,state.participants)?state.agentQuestion:undefined, invitations: state.participants.map(p => ({ buyerId: p.id, name: p.name,
         url: `/invite/${state.mode === 'rehearsal' ? `demo-${p.id}` : state.invitationTokens[p.id] ?? ''}`, active: p.active })),
       packing: gates.packing.allowed ? state.packing : [], priorPaymentBlockers: plan ? this.priorPaymentBlockers(state, plan.id) : [],
       rehearsalCaptureOutcome: state.rehearsalCaptureOutcome });
     const participant = this.participant(state, userId); const assignment = plan?.assignments.find(a => a.buyerId === userId);
     const { items, ...collection } = state.collection;
     const shipment = state.packing.find(p => p.buyerId === userId);
-    return clone({ ...base, role: 'buyer', collection: { ...collection, items: items.map(({ shareCents: _share, ...item }) => item) },
+    return clone({ ...base, role: 'buyer', collection: { ...collection, items: items.map(({ shareCents: _share, ...item }) => ({...item,...(v2?{fixedPriceCents:_share}:{})})) },
       participant, plan: plan && assignment && plan.status !== 'draft' ? { id: plan.id, version: plan.version, status: plan.status,
         assignment, consent: plan.consents[userId], payment: this.payment(state, plan, userId), previous: previousFor(userId),
         failureReason: plan.failureReason, invalidationReason: plan.invalidationReason } : undefined,
       noSolution: state.noSolution ? { message: state.noSolution.message } : undefined,
       shipment: shipment ? { packedAt: shipment.packedAt, shippedAt: shipment.shippedAt } : undefined,
-      demoDefaults: getDemoDefaults(rehearsalCollectionId, userId) });
+      agentQuestion:v2 && state.agentQuestion?.buyerId===userId && state.agentQuestion.status==='sent' && state.agentQuestion.contextDigest===agentContextDigest(state.collection,state.participants)?state.agentQuestion:undefined,
+      demoDefaults: v2?v2Defaults(state.collection,userId):getDemoDefaults(rehearsalCollectionId, userId) });
   }
 
   updateCollection(userId: UserId, input: Record<string, unknown>) {
@@ -369,6 +407,7 @@ export class LotSplitEngine {
       const financial = input.collectionPriceCents !== undefined || input.sharedCostCents !== undefined;
       if (financial && state.collection.preferencesOpened) throw new DomainError('SHARES_LOCKED', 'Set costs and item shares before collecting budget limits.', 409);
       const c = state.collection;
+      if(c.protocolVersion===2 && input.sharedCostCents!==undefined && input.sharedCostCents!==0) throw new DomainError('FIXED_PRICES','V2 uses fixed item prices and one pickup; no shared delivery charge.');
       if (input.name !== undefined) c.name = textField(input.name, 'name', 160);
       if (input.description !== undefined) c.description = textField(input.description, 'description');
       if (input.collectionPriceCents !== undefined) c.collectionPriceCents = money(input.collectionPriceCents, 'collectionPriceCents', false);
@@ -382,6 +421,12 @@ export class LotSplitEngine {
         if (!Number.isFinite(Date.parse(iso))) throw new DomainError('INVALID_DATE', 'Enter a valid reservation deadline.');
         if (iso !== c.reservationExpiresAt) { c.reservationExpiresAt = new Date(iso).toISOString(); this.invalidate(state, 'The reservation deadline changed.'); }
       }
+      if(c.protocolVersion===2 && input.pickup!==undefined) {
+        const p=input.pickup as Record<string,unknown>;
+        const next={location:textField(p?.location,'location',200),startsAt:textField(p?.startsAt,'startsAt',100),endsAt:textField(p?.endsAt,'endsAt',100)};
+        if(!Number.isFinite(Date.parse(next.startsAt)) || !Number.isFinite(Date.parse(next.endsAt)) || Date.parse(next.startsAt)<=Date.parse(c.reservationExpiresAt) || Date.parse(next.endsAt)<=Date.parse(next.startsAt)) throw new DomainError('INVALID_PICKUP','Choose one pickup period after the reservation deadline.');
+        if(JSON.stringify(c.pickup)!==JSON.stringify(next)){c.pickup=next;this.invalidate(state,'The pickup terms changed.');}
+      }
       c.totalCents = c.collectionPriceCents + c.sharedCostCents;
       if (financial) { c.catalogStatus = 'draft'; this.invalidate(state, 'The collection costs changed.'); }
     });
@@ -393,6 +438,7 @@ export class LotSplitEngine {
       if (input.shareCents !== undefined && state.collection.preferencesOpened) throw new DomainError('SHARES_LOCKED', 'Item shares are locked after preference collection begins.', 409);
       for (const key of ['name', 'description', 'condition'] as const) if (input[key] !== undefined) item[key] = textField(input[key], key);
       if (input.imageUrl !== undefined) { const url = textField(input.imageUrl, 'imageUrl', 10000000); if (!safeImage(url)) throw new DomainError('INVALID_IMAGE', 'Invalid image address.'); item.imageUrl = url; }
+      if(input.imageRegion!==undefined)item.imageRegion=imageRegion(input.imageRegion);
       if (input.shareCents !== undefined) item.shareCents = money(input.shareCents, 'shareCents');
       if (input.confirmed !== undefined) { if (typeof input.confirmed !== 'boolean') throw new DomainError('INVALID_CONFIRMATION', 'Confirm the item.'); item.confirmed = input.confirmed; if (input.confirmed) item.needsReview = false; }
       state.collection.catalogStatus = 'draft';
@@ -404,10 +450,11 @@ export class LotSplitEngine {
     this.organizer(userId); this.mutate(state => {
       this.requireGate(this.gates(state).confirmCatalog);
       const c = state.collection;
-      if (c.items.length !== 24 || new Set(c.items.map(i => i.id)).size !== 24 || c.items.some(i => !i.confirmed || i.needsReview || !i.condition || !safeImage(i.imageUrl)))
-        throw new DomainError('CATALOG_INCOMPLETE', 'Review and confirm all 24 items.');
+      if ((c.protocolVersion===2 ? c.items.length<1 || c.items.length>24 : c.items.length!==24) || new Set(c.items.map(i => i.id)).size !== c.items.length || c.items.some(i => !i.confirmed || i.needsReview || !i.condition || !safeImage(i.imageUrl)))
+        throw new DomainError('CATALOG_INCOMPLETE', 'Review and confirm every catalogue item.');
       if (c.items.some(i => !Number.isSafeInteger(i.shareCents) || i.shareCents < 0) || c.items.reduce((sum, i) => sum + i.shareCents, 0) !== c.collectionPriceCents)
         throw new DomainError('SHARE_SUM', 'The item shares must add up to the collection price.');
+      if(c.protocolVersion===2&&c.items.some(i=>i.shareCents<=0))throw new DomainError('FIXED_PRICE_REQUIRED','Set a fixed price greater than zero for every item before opening the catalogue.');
       c.catalogStatus = 'confirmed'; c.preferencesOpened = true;
     });
   }
@@ -421,10 +468,11 @@ export class LotSplitEngine {
   }
   invitationUser(token: string): UserId | undefined {
     const state = this.snapshot();
-    if (state.mode === 'rehearsal' && token.startsWith('demo-')) return DEMO_ACCESS.some(a => a.inviteToken === token) ? token.slice(5) as UserId : undefined;
+    if (state.mode === 'rehearsal' && token.startsWith('demo-')) return (state.collection.protocolVersion===2?V2_ACCESS:DEMO_ACCESS).some(a => a.inviteToken === token) ? token.slice(5) as UserId : undefined;
     return (Object.entries(state.invitationTokens).find(([, t]) => t === token)?.[0]) as UserId | undefined;
   }
   savePreferences(userId: UserId, input: Record<string, unknown>) {
+    if(this.snapshot().collection.protocolVersion===2) { this.saveBasketOptions(userId,input); return; }
     const buyerId = this.buyer(userId); this.mutate(state => {
       this.requireGate(this.gates(state, buyerId).editPreferences); const participant = this.participant(state, buyerId);
       if (!participant.active) throw new DomainError('INACTIVE', 'This participant slot is not currently active.', 409);
@@ -451,6 +499,123 @@ export class LotSplitEngine {
       throw new DomainError('INVALID_ITEMS', 'Check the selected item IDs.', 400, { [field]: 'Invalid or duplicate item.' });
     return sorted(value as string[]);
   }
+  saveBasketOptions(userId: UserId, input: Record<string,unknown>) {
+    const id=this.buyer(userId);
+    this.mutate(state=>{
+      if(state.collection.protocolVersion!==2) throw new DomainError('V2_REQUIRED','Whole basket options require V2.');
+      this.requireGate(this.gates(state,id).editPreferences);
+      if(this.expired(state)) throw new DomainError('EXPIRED','The reservation has ended.',409);
+      const participant=this.participant(state,id);
+      if(!participant.active) throw new DomainError('INACTIVE','This buyer is not active.',409);
+      if(input.confirmed!==true) throw new DomainError('CONFIRM_OPTIONS','Review and explicitly confirm each complete basket.');
+      const raw=input.basketOptions;
+      if(!Array.isArray(raw) || raw.length<1 || raw.length>2) throw new DomainError('OPTION_COUNT','Save one or two complete acceptable baskets.');
+      const budget=money(input.budgetCents,'budgetCents',false);
+      const rejected=this.validIds(state,input.rejectedItemIds??participant.preferences?.rejectedItemIds??[],'rejectedItemIds');
+      const options=raw.map((o,index)=>{
+        const ids=this.validIds(state,Array.isArray(o)?o:(o as {itemIds?:unknown})?.itemIds,'basketOptions');
+        if(!ids.length) throw new DomainError('EMPTY_BASKET','Each acceptable option must contain at least one item.');
+        if(ids.some(id=>rejected.includes(id)))throw new DomainError('REJECTED_ITEM','A basket includes an item you explicitly rejected.');
+        if(ids.reduce((sum,itemId)=>sum+state.collection.items.find(i=>i.id===itemId)!.shareCents,0)>budget) throw new DomainError('BUDGET_LIMIT','Every saved whole basket must fit your private limit.');
+        return {id:`option-${index+1}`,itemIds:ids,confirmedAt:this.time()};
+      });
+      if(new Set(options.map(o=>o.itemIds.join(','))).size!==options.length) throw new DomainError('DUPLICATE_OPTION','These baskets are identical. Save the option once.');
+      participant.preferences={preferredItemIds:options[0].itemIds,alternativeItemIds:[],alternativesConfirmed:true,budgetCents:budget,
+        basketOptions:options,rejectedItemIds:rejected,description:typeof input.description==='string'?input.description.slice(0,2000):participant.preferences?.description,updatedAt:this.time(),submittedAt:this.time()};
+      this.invalidate(state,'Confirmed whole basket options changed. Check a new plan.');
+    });
+  }
+  createLot(userId: UserId,input: Record<string,unknown>) {
+    this.organizer(userId);
+    this.mutate(state=>{
+      if(state.collection.protocolVersion!==2) throw new DomainError('V2_REQUIRED','Own lots require V2.');
+      if(Object.keys(state.operations).length) throw new DomainError('PAYMENT_HISTORY','This workspace contains payment history. Use a fresh workspace to create another lot.',409);
+      const count=Number(input.buyerCount ?? 4);
+      if(!Number.isInteger(count) || count<2 || count>6) throw new DomainError('BUYER_COUNT','Choose two to six buyers.');
+      const photos=input.photos;
+      if(!Array.isArray(photos)||!photos.length||photos.length>12||photos.some(p=>typeof p!=='string'||!safeImage(p))) throw new DomainError('INVALID_PHOTOS','Add a photo of your own lot.');
+      const deadline=textField(input.reservationExpiresAt,'reservationExpiresAt',100);
+      const p=input.pickup as Record<string,unknown>;
+      const pickup={location:textField(p?.location,'location',200),startsAt:textField(p?.startsAt,'startsAt',100),endsAt:textField(p?.endsAt,'endsAt',100)};
+      if(!Number.isFinite(Date.parse(deadline))||Date.parse(deadline)<=this.now().getTime()||!Number.isFinite(Date.parse(pickup.startsAt))||!Number.isFinite(Date.parse(pickup.endsAt))||Date.parse(pickup.startsAt)<=Date.parse(deadline)||Date.parse(pickup.endsAt)<=Date.parse(pickup.startsAt)) throw new DomainError('INVALID_DATE','Choose a future reservation deadline and a later pickup period.');
+      const total=money(input.collectionPriceCents,'collectionPriceCents',false);
+      state.collection={...createV2Collection(this.now(),'workshop',this.options.recipientId),name:textField(input.name,'name',160),
+        description:'One whole mixed lot. One pickup.',buyerCount:count,items:[],photos:photos as string[],collectionPriceCents:total,totalCents:total,
+        reservationExpiresAt:new Date(deadline).toISOString(),pickup};
+      state.participants=v2Participants(count);state.plans=[];state.currentPlanId=undefined;state.noSolution=undefined;state.agentQuestion=undefined;
+      state.packing=[];state.invitationTokens={};state.paymentDeadline=undefined;
+    });
+  }
+  addItem(userId:UserId,input:Record<string,unknown>) {
+    this.organizer(userId); this.mutate(state=>{
+      if(state.collection.protocolVersion!==2||state.collection.preferencesOpened||!this.editingAllowed(state)) throw new DomainError('CATALOG_LOCKED','Add or remove items before buyers submit their needs.',409);
+      if(state.collection.items.length>=24) throw new DomainError('ITEM_LIMIT','This MVP supports up to 24 individually identified items.');
+      const image=typeof input.imageUrl==='string'?input.imageUrl:state.collection.photos[0];
+      if(!safeImage(image)) throw new DomainError('INVALID_IMAGE','Choose an item photo.');
+      const next=Math.max(0,...state.collection.items.map(i=>Number(i.id)||0))+1;
+      state.collection.items.push({id:String(next).padStart(2,'0'),name:textField(input.name??'New item','name',160),description:typeof input.description==='string'?input.description.slice(0,2000):'Seller description required.',
+        condition:typeof input.condition==='string'?input.condition.slice(0,300):'Seller inspection required',imageUrl:image,imageRegion:imageRegion(input.imageRegion),shareCents:money(input.shareCents??0,'shareCents'),confirmed:false,needsReview:true});
+      state.collection.catalogStatus='draft';state.collection.catalogVersion++;
+    });
+  }
+  removeItem(userId:UserId,itemId:string) {
+    this.organizer(userId);this.mutate(state=>{
+      if(state.collection.protocolVersion!==2||state.collection.preferencesOpened||!this.editingAllowed(state)) throw new DomainError('CATALOG_LOCKED','The catalogue is locked.',409);
+      state.collection.items=state.collection.items.filter(i=>i.id!==itemId);state.collection.catalogStatus='draft';state.collection.catalogVersion++;
+    });
+  }
+  updateParticipant(userId:UserId,id:BuyerId,input:Record<string,unknown>) {
+    this.organizer(userId);this.mutate(state=>{
+      if(state.collection.protocolVersion!==2 || !this.editingAllowed(state)) throw new DomainError('PARTICIPANTS_LOCKED','The buyers are locked while payments are settled.',409);
+      const p=this.participant(state,id);
+      if((input.name!==undefined||input.email!==undefined)&&(p.preferences||p.invitedAt||Object.values(state.operations).some(o=>o.buyerId===id)))throw new DomainError('PARTICIPANTS_LOCKED','A buyer identity is locked after invitation or saved options.',409);
+      if(input.active!==undefined&&state.collection.preferencesOpened)throw new DomainError('PARTICIPANTS_LOCKED','Use an explicit replacement after a buyer leaves.',409);
+      if(input.name!==undefined)p.name=textField(input.name,'name',80);
+      if(input.email!==undefined){const email=textField(input.email,'email',200).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new DomainError('INVALID_EMAIL','Enter a valid buyer email.');if(state.participants.some(other=>other.id!==id&&other.email===email))throw new DomainError('DUPLICATE_EMAIL','Each buyer needs a distinct email.');p.email=email;}
+      if(input.active!==undefined){if(typeof input.active!=='boolean')throw new DomainError('INVALID_ACTIVE','Check the buyer selection.');p.active=input.active;}
+      state.collection.buyerCount=state.participants.filter(p=>p.active).length;
+      if(state.collection.buyerCount<2||state.collection.buyerCount>6)throw new DomainError('BUYER_COUNT','Keep two to six active buyers.');
+    });
+  }
+  checkCandidate(buyerId:BuyerId,itemIds:string[]) {
+    const state=this.snapshot();const buyer=this.participant(state,buyerId);
+    const ids=this.validIds(state,itemIds,'itemIds');
+    const amount=ids.reduce((sum,id)=>sum+state.collection.items.find(i=>i.id===id)!.shareCents,0);
+    const opts=buyer.preferences?.basketOptions??[];
+    if(!buyer.active || !buyer.preferences || !ids.length || ids.some(id=>buyer.preferences?.rejectedItemIds?.includes(id)) || amount>buyer.preferences.budgetCents || opts.length>=2) return {feasible:false,amountCents:amount};
+    const hypothetical=clone(state.participants);const target=hypothetical.find(p=>p.id===buyerId)!;
+    target.preferences!.basketOptions=[...opts,{id:'unconfirmed-hypothesis',itemIds:ids,confirmedAt:this.time()}];
+    const result=solveWholeBaskets(state.collection,hypothetical,this.current(state)?.assignments);
+    return {feasible:Array.isArray(result) && result.some(a=>a.buyerId===buyerId&&a.itemIds.join(',')===ids.join(',')),amountCents:amount};
+  }
+  storeCheckedQuestion(userId:UserId,question:Omit<CheckedQuestion,'id'|'status'|'contextDigest'|'createdAt'>,expectedContext:string) {
+    this.organizer(userId);this.mutate(state=>{
+      if(agentContextDigest(state.collection,state.participants)!==expectedContext)throw new DomainError('STALE_CONTEXT','The basket conditions changed. Run the assistant again.',409);
+      this.requireGate(this.gates(state).solve);
+      if(!this.checkCandidate(question.buyerId,question.itemIds).feasible)throw new DomainError('UNCHECKED_QUESTION','The proposed option does not unlock a complete checked plan.',409);
+      state.agentQuestion={...question,id:randomUUID(),status:'draft',contextDigest:expectedContext,createdAt:this.time()};
+    });
+  }
+  sendQuestion(userId:UserId,id:string) {this.organizer(userId);this.mutate(state=>{
+    const q=state.agentQuestion;if(!q||q.id!==id||q.contextDigest!==agentContextDigest(state.collection,state.participants))throw new DomainError('STALE_QUESTION','Check the current basket options again.',409);
+    if(this.expired(state))throw new DomainError('EXPIRED','The reservation has ended.',409);
+    if(q.status!=='draft')throw new DomainError('QUESTION_SENT','This question is no longer a draft.',409);
+    q.status='sent';
+  });}
+  answerQuestion(userId:UserId,id:string,accept:boolean) {
+    const buyerId=this.buyer(userId);const state=this.snapshot();const q=state.agentQuestion;
+    if(!q||q.id!==id||q.buyerId!==buyerId||q.status!=='sent'||q.contextDigest!==agentContextDigest(state.collection,state.participants))throw new DomainError('STALE_QUESTION','This question is no longer current.',409);
+    if(accept){const prefs=this.participant(state,buyerId).preferences!;this.saveBasketOptions(userId,{basketOptions:[...(prefs.basketOptions??[]).map(o=>o.itemIds),q.itemIds],budgetCents:prefs.budgetCents,confirmed:true});}
+    this.mutate(s=>{if(s.agentQuestion?.id===id){s.agentQuestion.status=accept?'accepted':'declined';s.agentQuestion.contextDigest=agentContextDigest(s.collection,s.participants);}});
+  }
+  async expireReservations() {
+    const state=this.snapshot();if(state.collection.protocolVersion!==2||!this.expired(state))return;
+    if(state.plans.some(p=>p.status==='sent'||p.status==='draft'))this.mutate(s=>{
+      for(const p of s.plans)if(['sent','draft'].includes(p.status)){p.status='invalidated';p.invalidationReason='The reservation ended. Hold cancellation requested.';p.invalidatedAt=this.time();}
+      s.packing=[];
+    });
+    await this.compensateInvalidPlans();
+  }
   private invalidate(state: DomainState, reason: string) {
     const plan = this.current(state); if (!plan || plan.status === 'invalidated') return;
     if (!this.editingAllowed(state)) throw new DomainError('PAYMENTS_STARTED', 'Payments are being settled.', 409);
@@ -459,18 +624,24 @@ export class LotSplitEngine {
   solve(userId: UserId) {
     this.organizer(userId); this.mutate(state => {
       this.requireGate(this.gates(state).solve);
-      const result = solveAllocation(state.collection, state.participants);
       const previous = this.current(state);
+      const result = state.collection.protocolVersion===2 ? solveWholeBaskets(state.collection,state.participants,previous?.assignments) : solveAllocation(state.collection, state.participants);
       if (!Array.isArray(result)) { if (previous && previous.status !== 'invalidated') this.invalidate(state, 'No complete solution is available.'); state.noSolution = result; return; }
       if (previous && previous.status !== 'invalidated') this.invalidate(state, 'A new plan version was calculated.');
-      const plan: AllocationPlan = { id: randomUUID(), version: Math.max(0, ...state.plans.map(p => p.version)) + 1,
+      const plan: AllocationPlan = { ...(state.collection.protocolVersion===2?{contractVersion:2 as const}:{}),id: randomUUID(), version: Math.max(0, ...state.plans.map(p => p.version)) + 1,
         status: 'draft', assignments: result, consents: {}, payments: {}, createdAt: this.time() };
       for (const assignment of result) {
         const participant = this.participant(state, assignment.buyerId);
         const past = previous && previous.assignments.some(a => a.buyerId === assignment.buyerId && a.termsDigest === assignment.termsDigest && consentValid(previous, a)) &&
           (!participant.withdrawnAt || previous.consents[assignment.buyerId]!.acceptedAt > participant.withdrawnAt) &&
           !Object.values(state.operations).some(op => op.planId === previous.id && op.kind === 'capture') ? previous : undefined;
-        if (past) { const consent = past.consents[assignment.buyerId]!; plan.consents[assignment.buyerId] = { ...consent, preservedFromPlanId: past.id }; }
+        if (past && (state.collection.protocolVersion!==2 || past.consents[assignment.buyerId]?.contract===V2_CONTRACT)) {
+          const consent = past.consents[assignment.buyerId]!; plan.consents[assignment.buyerId] = { ...consent, preservedFromPlanId: past.id };
+          const old= this.payment(state,past,assignment.buyerId);
+          if(state.collection.protocolVersion===2 && old.authorization?.status==='AUTHORIZED' && old.authorization.termsDigest===assignment.termsDigest && !old.void && !old.refund && (!old.authorization.expiresAt || Date.parse(old.authorization.expiresAt)>this.now().getTime()) && !this.expired(state)) {
+            plan.payments[assignment.buyerId]={orderOperationId:old.order?.id,authorizationOperationId:old.authorization.id};
+          }
+        }
       }
       state.plans.push(plan); state.currentPlanId = plan.id; state.noSolution = undefined;
     });
@@ -481,13 +652,15 @@ export class LotSplitEngine {
       const plan = this.requireCurrent(state, planId); this.requireGate(this.gates(state, buyerId).agree);
       const assignment = plan.assignments.find(a => a.buyerId === buyerId)!;
       if (digest !== assignment.termsDigest) throw new DomainError('TERMS_CHANGED', 'The terms changed. Review your exact current allocation and amount.', 409);
-      plan.consents[buyerId] = { buyerId, termsDigest: digest, acceptedAt: this.time(), sourcePlanId: plan.id };
+      plan.consents[buyerId] = { ...(state.collection.protocolVersion===2?{contract:V2_CONTRACT}:{}), buyerId, termsDigest: digest, acceptedAt: this.time(), sourcePlanId: plan.id };
     });
   }
   async withdraw(userId: UserId) {
     const buyerId = this.buyer(userId); this.mutate(state => {
       this.requireGate(this.gates(state).withdraw); const participant = this.participant(state, buyerId);
+      if(state.collection.protocolVersion===2&&!participant.active)throw new DomainError('INACTIVE','You already left this purchase.',409);
       participant.active = false; participant.withdrawnAt = this.time(); this.invalidate(state, `${participant.name} withdrew from the purchase.`);
+      if(state.collection.protocolVersion===2) state.collection.buyerCount=state.participants.filter(p=>p.active).length;
       const result = solveAllocation(state.collection, state.participants); if (!Array.isArray(result)) state.noSolution = result;
     });
     await this.compensateInvalidPlans();
@@ -497,8 +670,14 @@ export class LotSplitEngine {
       this.requireGate(this.gates(state).withdraw);
       if (leavingBuyerId === replacementBuyerId) throw new DomainError('INVALID_REPLACEMENT', 'Choose a different person.');
       const leaving = this.participant(state, leavingBuyerId), replacement = this.participant(state, replacementBuyerId);
+      if(state.collection.protocolVersion===2&&(leaving.active||!leaving.withdrawnAt||leaving.replacedBy))throw new DomainError('WITHDRAWAL_REQUIRED','A buyer must explicitly leave before this slot can be replaced.',409);
       if (replacement.active) throw new DomainError('ALREADY_ACTIVE', 'This person is already active.');
       leaving.active = false; leaving.withdrawnAt = this.time(); replacement.active = true; replacement.invitedAt = this.time();
+      if(state.collection.protocolVersion===2) {
+        leaving.replacedBy=replacementBuyerId;
+        const slot=state.participants.indexOf(leaving);state.participants=state.participants.filter(p=>p.id!==replacementBuyerId);state.participants.splice(slot,0,replacement);
+        state.collection.buyerCount=state.participants.filter(p=>p.active).length;
+      }
       this.invalidate(state, `${replacement.name} replaces ${leaving.name}.`); state.noSolution = undefined;
     });
     await this.compensateInvalidPlans();
@@ -519,6 +698,7 @@ export class LotSplitEngine {
     if (!assignment) throw new DomainError('NOT_IN_PLAN', 'You are not a participant in this version.', 403);
     const id = randomUUID();
     const operation: PaymentOperation = { id, idempotencyKey: `lotsplit-${kind}-${id}`, kind, buyerId, planId: plan.id,
+      ...(state.collection.protocolVersion===2?{termsDigest:assignment.termsDigest}:{}),
       amountCents: assignment.totalCents, currency: state.collection.currency, status: 'STARTED', source: sourceForMode(state.mode),
       parentProviderId, createdAt: this.time(), updatedAt: this.time(), checkNeeded: true, reconcileAttempts: 0 };
     state.operations[id] = operation;
@@ -626,6 +806,8 @@ export class LotSplitEngine {
       operation.approvalUrl = result.approvalUrl ?? operation.approvalUrl; operation.updatedAt = this.time();
       operation.checkNeeded = ['UNKNOWN', 'PENDING'].includes(result.status); operation.lastError = undefined; operation.providerError = undefined;
       if (operation.kind === 'authorize' && result.expiresAt) operation.expiresAt = result.expiresAt;
+      if(state.collection.protocolVersion===2 && operation.kind==='authorize' && result.status==='AUTHORIZED' && !state.paymentDeadline)
+        state.paymentDeadline=new Date(Math.min(Date.parse(state.collection.reservationExpiresAt),this.now().getTime()+24*3600_000)).toISOString();
     });
   }
   async authorize(userId: UserId, planId: string): Promise<{ operationId: string; approvalUrl?: string }> {
@@ -718,15 +900,25 @@ export class LotSplitEngine {
   private async compensateInvalidPlans() {
     for (const plan of this.snapshot().plans.filter(p => p.status === 'invalidated')) await this.compensatePlan(plan.id);
   }
-  async processPendingCompensation() { await this.compensateInvalidPlans(); }
+  async processPendingCompensation() { await this.expireReservations(); await this.compensateInvalidPlans(); }
   private async compensatePlan(planId: string) {
     for (const assignment of this.snapshot().plans.find(p => p.id === planId)?.assignments ?? []) {
       const prepared = this.mutate(state => {
         const plan = state.plans.find(p => p.id === planId)!; const payment = this.payment(state, plan, assignment.buyerId);
+        if(state.collection.protocolVersion===2 && plan.status==='invalidated') {
+          const current=this.current(state); const participant=this.participant(state,assignment.buyerId);
+          const replacement=current?.id!==plan.id ? current?.assignments.find(a=>a.buyerId===assignment.buyerId) : undefined;
+          const sameTerms=assignment.termsDigest===termsDigest(state.collection,assignment.buyerId,assignment.itemIds,assignment.totalCents);
+          const stillAccepted=participant.preferences?.basketOptions?.some(o=>o.itemIds.slice().sort().join(',')===assignment.itemIds.slice().sort().join(','));
+          const retainedByCurrent=!!payment.authorization && current?.id!==plan.id && current?.payments[assignment.buyerId]?.authorizationOperationId===payment.authorization.id;
+          if(retainedByCurrent || (!this.expired(state) && !replacement && participant.active && sameTerms && stillAccepted && plan.consents[assignment.buyerId]?.contract===V2_CONTRACT && !payment.capture)) return undefined;
+        }
         if (isUnknown(payment.capture) || isUnknown(payment.authorization) || isUnknown(payment.order)) return undefined;
         if (payment.capture?.status === 'COMPLETED') {
+          if(state.collection.protocolVersion===2 && !payment.refund && payment.capture.providerId){const existing=Object.values(state.operations).find(op=>op.kind==='refund'&&op.parentProviderId===payment.capture!.providerId);if(existing){plan.payments[assignment.buyerId]!.refundOperationId=existing.id;return undefined;}}
           if (!payment.refund && payment.capture.providerId) return this.prepareOperation(state, plan, assignment.buyerId, 'refund', payment.capture.providerId);
         } else if (payment.authorization?.status === 'AUTHORIZED') {
+          if(state.collection.protocolVersion===2 && !payment.void && payment.authorization.providerId){const existing=Object.values(state.operations).find(op=>op.kind==='void'&&op.parentProviderId===payment.authorization!.providerId);if(existing){plan.payments[assignment.buyerId]!.voidOperationId=existing.id;return undefined;}}
           if (!payment.void && payment.authorization.providerId) return this.prepareOperation(state, plan, assignment.buyerId, 'void', payment.authorization.providerId);
         } else if (payment.order && ['CREATED', 'APPROVED'].includes(payment.order.status) && !payment.authorization) {
           payment.order.status = 'CANCELLED'; payment.order.checkNeeded = false; payment.order.updatedAt = this.time();
@@ -860,8 +1052,8 @@ export class LotSplitEngine {
         if (ids.some(id => !parcel.itemIds.includes(id))) throw new DomainError('WRONG_PARCEL', 'This item belongs to a different parcel.');
         parcel.checkedItemIds = ids;
       }
-      if (input.packed === true) { if (parcel.checkedItemIds.length !== state.collection.itemsPerBuyer) throw new DomainError('PACKING_INCOMPLETE', 'Check all six items in the parcel.'); parcel.packedAt ??= this.time(); }
-      if (input.shipped === true) { if (!parcel.packedAt) throw new DomainError('NOT_PACKED', 'Confirm that the parcel has actually been packed first.'); parcel.shippedAt ??= this.time(); }
+      if (input.packed === true) { if (parcel.checkedItemIds.length !== parcel.itemIds.length) throw new DomainError('PACKING_INCOMPLETE', 'Check every physical item in this basket.'); parcel.packedAt ??= this.time(); }
+      if (input.shipped === true) { if(state.collection.protocolVersion===2)throw new DomainError('PICKUP_ONLY','V2 prepares one pickup and does not confirm shipping.');if (!parcel.packedAt) throw new DomainError('NOT_PACKED', 'Confirm that the parcel has actually been packed first.'); parcel.shippedAt ??= this.time(); }
     });
   }
   setRehearsalOutcome(userId: UserId, outcome: unknown) {
@@ -874,20 +1066,66 @@ export class LotSplitEngine {
   }
   private resetRehearsal(state: DomainState, collectionId: DemoCollectionId) {
     if (state.mode !== 'rehearsal') throw new DomainError('REHEARSAL_ONLY', 'Examples are available only in the demo rehearsal.', 403);
-    const fresh = createInitialState('rehearsal', this.now(), collectionId);
+    const fresh = state.collection.protocolVersion===2 ? this.freshV2('rehearsal',collectionId) : createInitialState('rehearsal', this.now(), collectionId);
     // Object.assign alone leaves optional values from the previous snapshot behind.
-    delete state.currentPlanId; delete state.noSolution;
+    delete state.currentPlanId; delete state.noSolution; delete state.agentQuestion; delete state.paymentDeadline;
     Object.assign(state, fresh, { revision: state.revision });
   }
   setRehearsalCollection(userId: UserId, collectionId: unknown) {
     this.organizer(userId);
     if (this.options.mode !== 'rehearsal') throw new DomainError('REHEARSAL_ONLY', 'Examples are available only in the demo rehearsal.', 403);
-    if (!isDemoCollectionId(collectionId)) throw new DomainError('INVALID_DEMO_COLLECTION', 'Choose an available example collection.', 400, { collectionId: 'Invalid example collection.' });
-    this.mutate(state => this.resetRehearsal(state, collectionId));
+    if (!(this.snapshot().collection.protocolVersion===2 ? V2_EXAMPLES.some(x=>x.id===collectionId) : isDemoCollectionId(collectionId))) throw new DomainError('INVALID_DEMO_COLLECTION', 'Choose an available example collection.', 400, { collectionId: 'Invalid example collection.' });
+    this.mutate(state => this.resetRehearsal(state, collectionId as DemoCollectionId));
+  }
+  private async setV2Scenario(userId:UserId,scenario:RehearsalScenario) {
+    const allowedScenarios:RehearsalScenario[]=['start','collecting','plan','agreements','three-authorizations','ready','success','unknown','partial-failure','refund-completed','dropout','v2','incomplete','expired','hold-unknown'];
+    if(!allowedScenarios.includes(scenario))throw new DomainError('INVALID_SCENARIO','Invalid scenario.');
+    const collectionId=this.snapshot().rehearsalCollectionId??'workshop';
+    if(scenario==='v2'&&collectionId!=='workshop')throw new DomainError('WORKSHOP_SCENARIO','Choose Workshop clearance to open the selective-repair example. Your current lot has not changed.');
+    this.mutate(s=>this.resetRehearsal(s,collectionId));
+    if(scenario==='start')return;
+    this.mutate(s=>{for(const i of s.collection.items){i.confirmed=true;i.needsReview=false;}});this.confirmCatalog(userId);
+    for(const p of this.snapshot().participants.filter(p=>p.active)){
+      const d=v2Defaults(this.snapshot().collection,p.id);
+      this.saveBasketOptions(p.id,{basketOptions:[d.preferredItemIds],budgetCents:d.budgetCents,description:d.description,rejectedItemIds:collectionId==='workshop'&&p.id==='maja'?['04']:[],confirmed:true});
+    }
+    if(scenario==='collecting')return;
+    if(scenario==='incomplete'){this.mutate(s=>{s.noSolution=solveWholeBaskets(s.collection,s.participants,[],0) as NoSolution;});return;}
+    if(collectionId==='workshop')this.saveBasketOptions('ola',{basketOptions:[['01','02','03'],['04','12']],budgetCents:50000,confirmed:true});
+    this.solve(userId);let plan=this.current(this.snapshot())!;
+    if(scenario==='plan')return;
+    this.sendPlan(userId,plan.id);
+    for(const [index,a] of plan.assignments.entries()){
+      if(scenario==='agreements' && index===2)continue;
+      this.agree(a.buyerId,plan.id,a.termsDigest);
+    }
+    if(scenario==='agreements')return;
+    if(scenario==='hold-unknown'){
+      const order=await this.authorize(plan.assignments[0].buyerId,plan.id);
+      this.mutate(s=>{const op=s.operations[order.operationId];op.status='UNKNOWN';op.checkNeeded=true;op.lastError='Prepared demonstration of an interrupted checkout response.';});return;
+    }
+    for(const [index,a] of plan.assignments.entries()){
+      if(scenario==='three-authorizations'&&index===plan.assignments.length-1)break;
+      const order=await this.authorize(a.buyerId,plan.id);await this.approve(a.buyerId,order.operationId);
+    }
+    if(scenario==='three-authorizations'||scenario==='ready')return;
+    if(scenario==='expired'){this.mutate(s=>{s.paymentDeadline=new Date(this.now().getTime()-1000).toISOString();});await this.expireReservations();return;}
+    if(scenario==='dropout'||scenario==='v2'){
+      await this.withdraw('bartek');if(scenario==='dropout')return;
+      await this.replace(userId,'bartek','ewa');
+      this.saveBasketOptions('ewa',{basketOptions:[['05','10']],budgetCents:60000,confirmed:true});
+      this.saveBasketOptions('ola',{basketOptions:[['04','12'],['04','12','06','08']],budgetCents:50000,confirmed:true});
+      this.solve(userId);await this.processPendingCompensation();await this.reconcile(userId);return;
+    }
+    if(scenario==='unknown')this.setRehearsalOutcome(userId,'unknown-ola');
+    if(scenario==='partial-failure'||scenario==='refund-completed')this.setRehearsalOutcome(userId,'failure-ola');
+    await this.capture(userId,plan.id);
+    if(scenario==='refund-completed')await this.reconcile(userId);
   }
   async setScenario(userId: UserId, scenario: RehearsalScenario) {
     this.organizer(userId);
     if (this.options.mode !== 'rehearsal') throw new DomainError('REHEARSAL_ONLY', 'Scenarios are available only in the demo rehearsal.', 403);
+    if(this.snapshot().collection.protocolVersion===2) { await this.setV2Scenario(userId,scenario); return; }
     const scenarios: RehearsalScenario[] = ['start', 'collecting', 'plan', 'agreements', 'three-authorizations', 'ready', 'success', 'unknown', 'partial-failure', 'refund-completed', 'dropout', 'v2'];
     if (!scenarios.includes(scenario)) throw new DomainError('INVALID_SCENARIO', 'Invalid scenario.');
     const collectionId = this.snapshot().rehearsalCollectionId ?? 'illustrations';

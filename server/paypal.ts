@@ -337,7 +337,7 @@ export class PayPalSandboxProvider implements PaymentProvider {
       body: {
         intent: 'AUTHORIZE',
         purchase_units: [{ reference_id: 'LOTSPLIT', custom_id: input.customId, description: input.description, amount: money }],
-        payment_source: { paypal: { experience_context: { brand_name: 'LOTSPLIT Sandbox', user_action: 'CONTINUE',
+        payment_source: { paypal: { experience_context: { brand_name: 'LOTSPLIT Sandbox', user_action: 'CONTINUE',locale:'en-GB',
           shipping_preference: 'NO_SHIPPING', return_url: callbackUrl(input.returnUrl), cancel_url: callbackUrl(input.cancelUrl) } } },
       },
     });
@@ -370,10 +370,21 @@ export class PayPalSandboxProvider implements PaymentProvider {
 
   async voidAuthorization(authorizationId: string, idempotencyKey: string): Promise<ProviderResult> {
     validId(authorizationId); paypalRequestId(idempotencyKey);
-    const result = await this.request(`/v2/payments/authorizations/${authorizationId}/void`, { method: 'POST', idempotencyKey });
-    // Payments v2 confirms a successful void with HTTP 204 and no JSON body.
-    if (result.trace.httpStatus === 204) return { providerId: authorizationId, authorizationId, status: 'VOIDED', trace: result.trace };
-    return paymentResult(result.body, 'authorization', result.trace);
+    try {
+      const result = await this.request(`/v2/payments/authorizations/${authorizationId}/void`, { method: 'POST', idempotencyKey });
+      // Payments v2 confirms a successful void with HTTP 204 and no JSON body.
+      if (result.trace.httpStatus === 204) return { providerId: authorizationId, authorizationId, status: 'VOIDED', trace: result.trace };
+      return paymentResult(result.body, 'authorization', result.trace);
+    } catch(error) {
+      // A webhook or the seller may have cancelled the hold outside this request.
+      // The error itself is not proof: confirm this exact authorization through GET.
+      if(error instanceof PayPalProviderError && ['PREVIOUSLY_VOIDED','AUTHORIZATION_VOIDED'].some(code=>error.code===code||error.issues.includes(code))){
+        let confirmed:ProviderResult;
+        try{confirmed=await this.getAuthorization(authorizationId);}catch{throw new PayPalProviderError('PAYPAL_VOID_RESULT_UNKNOWN','The earlier cancellation needs a provider status check.',true,502);}
+        if(confirmed.status==='VOIDED')return {...confirmed,authorizationId};
+      }
+      throw error;
+    }
   }
 
   async refundCapture(captureId: string, amountCents: number, currency: string, idempotencyKey: string): Promise<ProviderResult> {

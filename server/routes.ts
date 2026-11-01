@@ -4,9 +4,12 @@ import type { AiProvider } from './ai.js';
 import { DomainError, LotSplitEngine } from './domain.js';
 import type { BuyerId, RehearsalScenario, UserId } from '../shared/types.js';
 import { getDemoDefaults, userForId } from './seed.js';
+import { v2Defaults } from './v2-catalog.js';
+import { runBasketAgent } from './basket-agent.js';
+import { loadPhoto, storePhoto } from './photos.js';
 
-export interface ApiRouterOptions { aiProvider?: AiProvider; origin?: string; organizerAccessToken?: string; sessionCookieName?: string }
-const BUYERS: BuyerId[] = ['maja', 'ola', 'bartek', 'jan', 'ewa'];
+export interface ApiRouterOptions { aiProvider?: AiProvider; origin?: string; organizerAccessToken?: string; sessionCookieName?: string; photoDirectory?:string }
+const BUYERS: BuyerId[] = ['maja', 'ola', 'bartek', 'jan', 'ewa','sixth'];
 const asyncRoute = (handler: (req: Request, res: Response) => unknown | Promise<unknown>) =>
   (req: Request, res: Response, next: NextFunction) => { Promise.resolve().then(() => handler(req, res)).catch(next); };
 function body(req: Request): Record<string, unknown> { return req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {}; }
@@ -42,6 +45,15 @@ export function createApiRouter(engine: LotSplitEngine, options: ApiRouterOption
   });
   router.get('/state', (req, res) => res.json(engine.view(session(req))));
   router.get('/session', (req, res) => res.json(engine.view(session(req))));
+  router.post('/v2/photos',asyncRoute(async(req,res)=>{
+    organizer(req);if(engine.snapshot().collection.protocolVersion!==2)throw new DomainError('V2_REQUIRED','Photo uploads require V2.');
+    if(!options.photoDirectory)throw new DomainError('PHOTO_STORAGE_UNAVAILABLE','Photo storage is unavailable.',503);
+    const photoUrl=await storePhoto(options.photoDirectory,body(req).imageDataUrl);result(req,res,{photoUrl});
+  }));
+  router.get('/photos/:file',asyncRoute(async(req,res)=>{
+    authenticated(req);if(!options.photoDirectory)throw new DomainError('PHOTO_NOT_FOUND','Photo not found.',404);
+    const photo=await loadPhoto(options.photoDirectory,String(req.params.file));res.type(photo.mime).send(photo.bytes);
+  }));
   router.post('/auth/demo', asyncRoute((req, res) => {
     if (engine.options.mode !== 'rehearsal') throw new DomainError('REHEARSAL_ONLY', 'Demo sign-in is disabled in sandbox mode.', 403);
     const input = body(req);
@@ -56,8 +68,8 @@ export function createApiRouter(engine: LotSplitEngine, options: ApiRouterOption
     const invitation = typeof input.inviteToken === 'string' ? input.inviteToken : '';
     let id = engine.invitationUser(invitation);
     if (!id && engine.options.mode === 'sandbox' && options.organizerAccessToken && equalSecret(invitation, options.organizerAccessToken)) id = 'kasia';
-    if (!id && engine.options.mode === 'rehearsal') id = (['kasia', ...BUYERS] as UserId[]).find(userId => userForId(userId).email === email);
-    if (!id || userForId(id).email !== email) throw new DomainError('INVALID_INVITATION', 'The email does not match the invitation, or the link has expired.', 401);
+    if (!id && engine.options.mode === 'rehearsal') id = (['kasia', ...BUYERS] as UserId[]).find(userId => engine.sessionUser(userId).email === email);
+    if (!id || engine.sessionUser(id).email !== email) throw new DomainError('INVALID_INVITATION', 'The email does not match the invitation, or the link has expired.', 401);
     const token = engine.store.createLoginLink(id);
     // Local review delivery is explicit. No mail is sent by this MVP.
     result(req, res, { link: `/api/auth/consume?token=${encodeURIComponent(token)}`,
@@ -112,6 +124,19 @@ export function createApiRouter(engine: LotSplitEngine, options: ApiRouterOption
   router.post('/rehearsal/scenario', asyncRoute(async (req, res) => { await engine.setScenario(organizer(req), requiredString(body(req).scenario, 'scenario') as RehearsalScenario); result(req, res); }));
   router.post('/rehearsal/collection', asyncRoute((req, res) => { engine.setRehearsalCollection(organizer(req), body(req).collectionId); result(req, res); }));
   router.post('/rehearsal/outcome', asyncRoute((req, res) => { engine.setRehearsalOutcome(organizer(req), body(req).outcome); result(req, res); }));
+  router.post('/v2/lot',asyncRoute((req,res)=>{engine.createLot(organizer(req),body(req));result(req,res);}));
+  router.post('/v2/items',asyncRoute((req,res)=>{engine.addItem(organizer(req),body(req));result(req,res);}));
+  router.delete('/v2/items/:id',asyncRoute((req,res)=>{engine.removeItem(organizer(req),String(req.params.id));result(req,res);}));
+  router.patch('/v2/participants/:id',asyncRoute((req,res)=>{engine.updateParticipant(organizer(req),buyerId(req.params.id),body(req));result(req,res);}));
+  router.put('/v2/options',asyncRoute(async(req,res)=>{engine.saveBasketOptions(authenticated(req),body(req));await engine.processPendingCompensation();result(req,res);}));
+  router.post('/v2/questions/:id/send',asyncRoute((req,res)=>{engine.sendQuestion(organizer(req),String(req.params.id));result(req,res);}));
+  router.post('/v2/questions/:id/answer',asyncRoute(async(req,res)=>{if(typeof body(req).accept!=='boolean')throw new DomainError('ANSWER_REQUIRED','Accept or keep your original option.');engine.answerQuestion(authenticated(req),String(req.params.id),body(req).accept as boolean);await engine.processPendingCompensation();result(req,res);}));
+  router.post('/v2/expiry/check',asyncRoute(async(req,res)=>{authenticated(req);await engine.expireReservations();result(req,res);}));
+  router.post('/ai/assistant',asyncRoute(async(req,res)=>{
+    const id=organizer(req);const response=await runBasketAgent(engine,options.aiProvider);
+    if(response.question)engine.storeCheckedQuestion(id,response.question,response.context);
+    result(req,res,{source:response.trace?'nebius':'rehearsal',trace:response.trace,toolCalls:response.toolCalls,complete:response.complete});
+  }));
 
   router.post('/ai/catalog', asyncRoute(async (req, res) => {
     organizer(req); const state = engine.snapshot();
@@ -128,12 +153,12 @@ export function createApiRouter(engine: LotSplitEngine, options: ApiRouterOption
     const id = authenticated(req); if (id === 'kasia') throw new DomainError('FORBIDDEN', 'The buyer must review the preference proposal.', 403);
     const state = engine.snapshot(); if (state.collection.catalogStatus !== 'confirmed') throw new DomainError('CATALOG_REQUIRED', 'A confirmed catalog is required first.', 409);
     if (engine.options.mode === 'rehearsal' && !options.aiProvider) {
-      const demo = getDemoDefaults(state.rehearsalCollectionId, id); return result(req, res, { source: 'rehearsal', proposal: { preferredIds: demo.preferredItemIds,
+      const demo = state.collection.protocolVersion===2?v2Defaults(state.collection,id):getDemoDefaults(state.rehearsalCollectionId, id); return result(req, res, { source: 'rehearsal', proposal: { preferredIds: demo.preferredItemIds,
         alternativeIds: demo.alternativeItemIds, rejectedIds: [], maxTotalCents: demo.budgetCents, noAlternativesExplicit: !demo.alternativeItemIds.length,
         ambiguities: ['Example demo preferences. Your description has not been processed by AI.'], requiresHumanConfirmation: true } });
     }
     if (!options.aiProvider) throw new DomainError('AI_NOT_CONFIGURED', 'AI assistance is not configured. Choose items manually.', 503);
-    const proposal = await options.aiProvider.parsePreferences(requiredString(body(req).text, 'text'), state.collection.items);
+    const proposal = await options.aiProvider.parsePreferences(requiredString(body(req).text, 'text'), state.collection.items,state.collection.protocolVersion===2?24:6);
     result(req, res, { source: 'nebius', proposal });
   }));
   const errors: ErrorRequestHandler = (error, _req, res, _next) => {

@@ -1,0 +1,61 @@
+{
+  "created": "2026-10-31",
+  "assets": [
+    {
+      "id": "hero",
+      "file": "public/assets/v2/hero.png",
+      "prompt": "Photorealistic editorial photograph for the LOTSPLIT app, landscape 3:2. A real used wooden workshop workbench in a softly daylit garage, green unbranded bare cordless drill standing with NO BATTERY installed, separate black battery with red release, separate black charger and orange-black extension cable reel on the table, grey used office chair behind table at left, simple grey steel storage cabinet in background. EXACTLY natural real photography, authentic wear, restrained neutral colours, realistic fine texture. Similar composition to attached approved app mockup's photo only. Fill image with the photographic scene, no app UI, no text, no typography, no borders, no watermark. This is a standalone hero asset, NOT a screenshot.",
+      "provider": "built-in ImageGen",
+      "sourceFile": "exec-d2fc6c55-73f9-494c-be29-a2ba6c4064d7.png",
+      "sha256": "639dfe6566ea3829e73f91ae5e1acf8b5bd6a3fbd29c79dada97cb1166869f47"
+    },
+    {
+      "id": "items-01-04",
+      "file": "public/assets/v2/items-01-04.png",
+      "prompt": "A precision FOUR-CELL product photography asset sheet for a minimalist used-goods app. Square image, EXACT 2 by 2 equal quadrants on pure white background, no dividers, no labels, no text. Center one whole unbranded physical item inside each quadrant, generous whitespace, realistic studio lighting, authentic light wear, each object fully inside its own cell. Top left: GREEN BARE CORDLESS DRILL with empty battery socket, absolutely NO battery attached. Top right: separate BLACK TOOL BATTERY with red release. Bottom left: BLACK TOOL BATTERY CHARGER with cable neatly coiled. Bottom right: GREEN AND BLACK CORDED DRILL with attached black power cable and side handle, no battery, visually distinct from top-left drill. Realistic commercial object photography, not 3D, accurate distinct silhouettes.",
+      "provider": "built-in ImageGen",
+      "sourceFile": "exec-149be938-20b7-4f41-ae1d-870aa62dbaf4.png",
+      "sha256": "a6470738550fa88a32dd110283216e9366a09641dc8bcf133a94b3cb3bafa881"
+    },
+    {
+      "id": "items-05-08",
+      "file": "public/assets/v2/items-05-08.png",
+      "prompt": "A precision FOUR-CELL product photography asset sheet for a minimalist used-goods app. Square image, EXACT 2 by 2 equal quadrants on pure white background, no dividers, no labels, no text. Center one whole unbranded physical item inside each quadrant, generous whitespace, realistic studio lighting, authentic light wear, each object fully inside own cell. Top left: WOOD TOP WORKBENCH with BLACK STEEL LEGS, simple rectangular bench, entire bench visible. Top right: BLACK ADJUSTABLE TASK LAMP standing on circular base, whole lamp. Bottom left: GREY STEEL STORAGE CABINET two doors, whole cabinet. Bottom right: GREY FABRIC OFFICE CHAIR on black five-star caster base, whole chair. Restrained realistic commercial product photography, not 3D, accurate distinct silhouettes.",
+      "provider": "built-in ImageGen",
+      "sourceFile": "exec-455b7f19-537b-410d-bbd2-0b2c50b38ce3.png",
+      "sha256": "a512d96f87d82417ff47a6bafa23a392ddd99db1f7556bc6a0e176f1c2719bc3"
+    },
+    {
+      "id": "items-09-12",
+      "file": "public/assets/v2/items-09-12.png",
+      "prompt": "A precision FOUR-CELL product photography asset sheet for a minimalist used-goods app. Square image, EXACT 2 by 2 equal quadrants on pure white background, no dividers, no labels, no text. Center one whole unbranded item or specified small group inside each quadrant, generous whitespace, realistic studio lighting, authentic light wear, each object fully inside own cell. Top left: CLOSED BLACK TOOL CARRY CASE with handle, simple rectangle. Top right: SMALL OPEN BOX OF METAL CLAMPS with red handles, all grouped in that box. Bottom left: ONE GROUP of assorted hand tools, hammer, pliers, screwdrivers and spanners neatly arranged, NOT a plastic tool case. Bottom right: ORANGE AND BLACK EXTENSION CABLE REEL with coiled black cable and handle, whole reel. Restrained realistic commercial product photography, not 3D, accurate distinct silhouettes.",
+      "provider": "built-in ImageGen",
+      "sourceFile": "exec-17d88575-675f-41c8-a130-7fbb5a8e5621.png",
+      "sha256": "e2994d189934c804d4b810e5ee847424a51a6ee18e84616d2eb0c1edb2f3ee58"
+    },
+    {
+      "id": "cafe",
+      "file": "public/assets/v2/cafe.png",
+      "prompt": "Photorealistic editorial photograph, landscape 3:2. Contents of a small independent cafe being sold as one lot after closure: used stainless steel espresso machine, coffee grinder, white ceramic cups and saucers, a dark wood stool and small cafe table, modest shelf with glassware. Empty warm cafe with gentle natural window light, credible used equipment, tasteful neutral warm photography, photographic realism rather than 3D or glossy render. No people, no brands, no signs, no text, no collage, no interface. Standalone product lot photograph for a minimalist secondhand app.",
+      "provider": "built-in ImageGen",
+      "sourceFile": "exec-497afb92-49b4-46d5-bad9-f23a0f0904ab.png",
+      "sha256": "5d1d8f2f1329765c918ea0725058297bcdf847df0ddfcee3faeaf51b362bd69d"
+    },
+    {
+      "id": "office",
+      "file": "public/assets/v2/office.png",
+      "prompt": "Photorealistic photograph for a minimalist secondhand app. Landscape 3:2 composition, a modest real office being cleared: black flat-screen monitor and laptop on a light oak desk, grey mesh office chair, one small plant, simple neutral office wall and window daylight. Unbranded used equipment, authentic ordinary condition, clear clean composition focused on the desk and chair, not a catalogue sheet, not a collage, no extra objects, no text or interface. Natural photography, restrained and credible, similar to the office thumbnail in the attached approved reference.",
+      "provider": "built-in ImageGen",
+      "sourceFile": "exec-725e939d-242f-4020-bf93-46170f98e8b4.png",
+      "sha256": "9c85637192b742be0fe393767def472a417abd09da03f5b08501d6149046ad6b"
+    },
+    {
+      "id": "garage",
+      "file": "public/assets/v2/garage.png",
+      "prompt": "Photorealistic photograph for a minimalist secondhand app. Landscape 3:2 composition in a real slightly worn garage: whole black city bicycle leaning against a cream wall, a green watering can and simple garden rake and spade nearby, hanging olive work jacket. Mixed possessions at a garage sale, neutral natural window daylight, credible normal used condition, cohesive scene rather than collage or product grid. No text, no logos, no interface, no people. Same restrained authentic photographic style as the garage thumbnail in the attached reference.",
+      "provider": "built-in ImageGen",
+      "sourceFile": "exec-81365d45-186d-42c6-80fc-3849cc1fae7f.png",
+      "sha256": "6e7ddf019f9b2e2ff36e2865a9c68f654f4cbad4d5475d065d0914537b62e8d1"
+    }
+  ]
+}

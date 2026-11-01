@@ -8,13 +8,14 @@ export const DEMO_ACCESS: DemoAccess[] = [
   })),
 ];
 export const DEMO_DEFAULTS: Record<BuyerId, { preferredItemIds: string[]; alternativeItemIds: string[]; budgetCents: number }> = {
+  sixth: { preferredItemIds: [], alternativeItemIds: [], budgetCents: 100000 },
   maja: { preferredItemIds: ['01', '04', '07', '09', '12', '18'], alternativeItemIds: ['20'], budgetCents: 20000 },
   ola: { preferredItemIds: ['02', '03', '05', '06', '08', '10'], alternativeItemIds: [], budgetCents: 23000 },
   bartek: { preferredItemIds: ['11', '13', '14', '15', '16', '17'], alternativeItemIds: [], budgetCents: 25000 },
   jan: { preferredItemIds: ['19', '20', '21', '22', '23', '24'], alternativeItemIds: [], budgetCents: 26000 },
   ewa: { preferredItemIds: ['18', '19', '21', '22', '23', '24'], alternativeItemIds: [], budgetCents: 26000 },
 };
-const demoBudgets: Partial<Record<DemoCollectionId, Record<BuyerId, number>>> = {
+const demoBudgets: Partial<Record<DemoCollectionId, Partial<Record<BuyerId, number>>>> = {
   workshop: { maja: 65000, ola: 33000, bartek: 36000, jan: 43000, ewa: 43000 },
   home: { maja: 95000, ola: 70000, bartek: 85000, jan: 70000, ewa: 70000 },
   office: { maja: 220000, ola: 150000, bartek: 100000, jan: 100000, ewa: 100000 },
@@ -25,7 +26,7 @@ export function getDemoDefaults(collectionId: DemoCollectionId | undefined, buye
   return { preferredItemIds: [...defaults.preferredItemIds], alternativeItemIds: [...defaults.alternativeItemIds],
     budgetCents: collectionId ? demoBudgets[collectionId]?.[buyerId] ?? defaults.budgetCents : defaults.budgetCents };
 }
-export const USER_NAMES: Record<UserId, string> = { kasia: 'Kasia', maja: 'Maja', ola: 'Ola', bartek: 'Bartek', jan: 'Jan', ewa: 'Ewa' };
+export const USER_NAMES: Record<UserId, string> = { kasia: 'Kasia', maja: 'Maja', ola: 'Ola', bartek: 'Bartek', jan: 'Jan', ewa: 'Ewa', sixth: 'Sam' };
 export function userForId(id: UserId) {
   return { id, name: USER_NAMES[id], email: `${id}@lotsplit.example`, role: id === 'kasia' ? 'organizer' as const : 'buyer' as const };
 }

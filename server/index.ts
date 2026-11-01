@@ -37,19 +37,21 @@ const expectedJudgeCredentials = createHash('sha256').update(`${judgeUsername}:$
 const aiDailyRequestLimit = Number(process.env.AI_DAILY_REQUEST_LIMIT || 100);
 if (!Number.isSafeInteger(aiDailyRequestLimit) || aiDailyRequestLimit < 1)
   throw new Error('AI_DAILY_REQUEST_LIMIT must be a positive integer.');
-const sessionCookieName = process.env.SESSION_COOKIE_NAME || 'lotsplit_session';
+const conceptVersion = process.env.LOTSPLIT_CONCEPT === 'legacy' ? undefined : 2;
+const sessionCookieName = process.env.SESSION_COOKIE_NAME || (conceptVersion===2?`lotsplit_v2_${mode}`:'lotsplit_session');
 const dataDirectory = resolve(process.env.DATA_DIR || './data');
 mkdirSync(dataDirectory, { recursive: true });
-const store = new SqliteStore<DomainState>(join(dataDirectory, `lotsplit-${mode}.sqlite`));
+const store = new SqliteStore<DomainState>(join(dataDirectory, `lotsplit-${conceptVersion===2?'v2-':''}${mode}.sqlite`));
 const ai = createAiProvider();
 const paypal = createPayPalProvider();
 const engine = new LotSplitEngine(store, {
+  conceptVersion, recipientId:conceptVersion===2?createHash('sha256').update(process.env.PAYPAL_CLIENT_ID || 'unconfigured-sandbox-merchant').digest('hex'):undefined,
   mode, baseUrl: origin, aiConfigured: ai.configured,
   paymentProvider: mode === 'sandbox' && paypal.configured ? paypal : undefined,
 });
 let organizerAccessToken = process.env.ORGANIZER_ACCESS_TOKEN;
 if (mode === 'sandbox' && !organizerAccessToken) {
-  const bootstrapFile = join(dataDirectory, 'organizer-access.json');
+  const bootstrapFile = join(dataDirectory, conceptVersion===2?'organizer-access-v2.json':'organizer-access.json');
   if (existsSync(bootstrapFile)) {
     const bootstrap = JSON.parse(readFileSync(bootstrapFile, 'utf8')) as { organizerAccessToken?: string };
     organizerAccessToken = bootstrap.organizerAccessToken;
@@ -114,7 +116,7 @@ app.use('/api/ai', (req, res, next) => {
   } catch (error) { store.db.exec('ROLLBACK'); next(error); }
 });
 app.use('/api', createApiRouter(engine, {
-  aiProvider: ai.configured ? ai : undefined, origin, organizerAccessToken, sessionCookieName,
+  aiProvider: ai.configured ? ai : undefined, origin, organizerAccessToken, sessionCookieName,photoDirectory:join(dataDirectory,'photos'),
 }));
 app.use('/api', (_req, res) => res.status(404).json({ code: 'NOT_FOUND', error: 'This operation was not found.' }));
 
@@ -141,10 +143,14 @@ app.use(((error, _req, res, _next) => {
 const server: Server = app.listen(port, host, () => {
   console.log(`LOTSPLIT: ${origin} (${mode}; AI ${ai.configured ? 'Nebius' : 'not configured'}; PayPal ${mode === 'sandbox' && paypal.configured ? 'sandbox configured' : 'simulated payments'})`);
 });
+let expiring=false;
+const expiryTimer=setInterval(()=>{if(expiring)return;expiring=true;void engine.expireReservations().catch(()=>console.error('[LOTSPLIT] Reservation cancellation needs a status check.')).finally(()=>{expiring=false;});},30_000);
+expiryTimer.unref();
 let closing = false;
 async function shutdown() {
   if (closing) return;
   closing = true;
+  clearInterval(expiryTimer);
   server.close(async () => { await vite?.close(); store.close(); process.exit(0); });
   setTimeout(() => process.exit(0), 5000).unref();
 }

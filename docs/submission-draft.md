@@ -1,61 +1,56 @@
-# LOTSPLIT submission draft
+# LOTSPLIT
 
-PayPal prelaunch draft: the portfolio is saved, while contest draft 1273698 is 4/5 and not submitted. Hosted launch/final contest handoff are deferred to 11 November 2026. The current V2.1 technical cut was published within verified media coverage; it is not the user-approved final artistic selection. V1 remains an older public backup. Current technical source/film checks passed. Three delivery gates remain: final submission-film visual approval, hosted/private judge access and final contest submission.
+**Sell the whole lot. Agree who takes what.**
 
-**Project:** LOTSPLIT
+## Inspiration
 
-**Tagline:** Split a whole bundle before anyone commits money.
+A seller wants to clear an entire mixed lot. An already interested group wants different parts: the drill, the workbench, the cabinet. A group chat can discuss those wishes, but it does not establish a complete, affordable allocation, exact purchase consent or a reliable payment state when someone leaves.
 
-**Problem and audience**
+LOTSPLIT coordinates that purchase for one seller, a small group and one pickup. The prototype does not discover buyers or claim to replace a marketplace.
 
-A seller offers a whole bundle only together. It may mix a bicycle, guitar, drill, tent, console, furniture and household goods, or contain related items such as workshop tools or vinyl records. Several people want different parts, but a group chat does not establish a complete allocation, exact prices, consent or payment status. LOTSPLIT helps that group organize the purchase as one shared plan.
+## What it does
 
-**What it does**
+The seller reviews the catalogue and fixes each item's price before buyers enter private spending limits. Each buyer confirms up to two complete baskets they would accept. Items and basket sizes can differ; an option is never broken into unwanted fragments.
 
-An organizer reviews a catalog and confirms each item's fixed share of the bundle price. Buyers choose preferred items, explicitly acceptable alternatives and a maximum total spend. A deterministic solver looks for a complete allocation within those constraints. Prices come from the fixed item shares and shared costs; a higher budget does not raise a buyer's price.
+AI translates a buyer's description into a reviewable basket and exclusions. A separate exact checker tests full allocations and alternative baskets against confirmed choices and limits. If two buyers want the same cordless set, AI drafts a question about a checked alternative: would Jan accept a corded drill and extension reel for PLN 190? The seller sends it; Jan can accept or refuse. Only after he adds that option can all twelve positions be allocated once. AI cannot approve a purchase, widen a budget or move money.
 
-Each buyer accepts their exact items and price. PayPal Sandbox authorization is a later, separate step. The organizer can request captures only after the current plan has all required consents and authorizations. Packing becomes available only after every buyer's capture is confirmed complete. Unknown results remain unresolved until checked with the provider.
+Each buyer then explicitly approves their own exact basket, amount and pickup terms, and separately authorizes PayPal Sandbox. Saving an option is not purchase consent, and an authorization is not a completed payment.
 
-The welcome screen offers **Garage Sale** (a mixed garage-sale lot, the fresh-rehearsal default), **Small Business Clearance** (a fictional office's assets offered together before the lease ends) and **Workshop Equipment** (workshop equipment). The rehearsal selector also retains **Second-Hand Vinyl** (used records), **Moving-Day Bookshelf** (books) and **Collectible Illustrations** (the original illustrations). Each has 24 fictional items, four buyers and six items per buyer, with its own images, names, descriptions and condition notes. Garage-sale shares total PLN 2580 plus PLN 240 shared cost, or PLN 2820; office shares total PLN 4320 plus PLN 480, or PLN 4800; workshop shares total PLN 1420 plus PLN 160, or PLN 1580. The three retained examples each use PLN 720 plus PLN 120, or PLN 840. Prices and buyer budgets vary while the mechanism stays the same. These are sample data, not market valuations.
+If a buyer leaves, unchanged exact commitments can be kept. Changed or withdrawn baskets require cancellations and fresh consent/authorization. Unresolved operations block collection. The seller can collect only when all required holds are ready. Captures are separate, non-atomic payments; an uncertain result is reconciled against the saved operation rather than blindly repeated. A partial failure stops later captures and requires confirmed refunds/cancellations. Physical preparation is a separate, manual step after all captures are confirmed.
 
-The example selector is rehearsal-only. Selecting a set replaces the rehearsal's choices, consents, simulated payments and packing state. Each set supports the full process and prepared replacement/recovery scenarios through the same application logic. Sandbox data and payment history cannot be reset by that selector.
+## How we built it
 
-**Where AI helps**
+React, TypeScript and Vite provide the English mobile-first interface. Express and Node.js 24 serve the API and compiled application. SQLite persists versioned baskets and consent, sessions, frozen provider commands and idempotency keys. The accepted V2 interface uses open rows and focused buyer views; the older AG Grid interface is a separate legacy path and is not presented as the current sponsor contribution.
 
-Nebius vision inference proposes catalog entries from a supplied photo. Text inference turns a buyer's natural-language preferences into candidate item choices. The application validates the structured responses and requires human review. AI does not confirm condition, set prices, approve a plan or authorize a payment. The allocation solver is separate application logic.
+Actual server-side Nebius inference uses NVIDIA Nemotron for preferences and the bounded question agent, and a vision model for unconfirmed catalogue suggestions from uploaded photos. The exact allocation checker is application logic, not an LLM guarantee. PayPal Orders v2 and Payments v2 run only against Sandbox. Provider secrets stay on the server.
 
-The verified vision request used one supplied item image. The 24-item demonstration catalog was prepared separately and confirmed by the organizer; it was not generated by that one request.
+The repository contains a Node 24 Docker build and a single-instance Render configuration with persistent storage. A configuration file alone is not a deployment or evidence of using Render Workflows. The publication record will identify the actual deployed service and private testing access when verified. OpenAI Codex assisted development.
 
-**How it is built**
+## What we verified
 
-React and TypeScript provide the buyer and organizer interfaces. AG Grid Community supports the organizer's structured review. Vite builds the client; Express serves the API and production client. Node.js 24's built-in SQLite module persists the collection, versioned consent, sessions and payment operation records. The PayPal adapter uses Orders v2 and Payments v2 against Sandbox. Nebius calls run on the server; credentials are not sent to the browser. OpenAI Codex assisted development.
+The current application passed 123 tests, client/server type checking and a production build. Browser verification covered own uploaded inventory, different catalogue sizes, correction of AI exclusions, exact consent, private limits, selective repair, incomplete checks, expiry and preparation.
 
-The overviews, garage-sale/office/workshop/vinyl/book tile atlases and original illustration images are original AI-generated demonstration assets. They depict fictional inventory and are not evidence of a real seller's goods, inspected condition or successful vision inference. See [asset provenance](assets.md).
+Separate real integration runs verified live AI, actual PayPal Sandbox approvals, voids and captures. The final film follows a workshop purchase repaired from Plan 1 to Plan 2: Marta PLN 380 and Oskar PLN 510 keep their unchanged commitments; Jan approves PLN 430 and Nina PLN 480. Four provider-confirmed captures total PLN 1,800. A separate controlled provider-failure test verified reconciliation and compensation; the film's failure section is an explicitly labelled simulation, not footage of those real refunds.
 
-**What makes the approach useful**
+One Sandbox payer represents multiple fictional buyer sessions. Inventory is fictional, test funds are used, and no physical handover or real-customer/ROI validation is claimed. See [verification](verification.md) for exact boundaries.
 
-The application connects complete allocation to exact consent and observable payment state. A budget is a constraint, an accepted plan is a decision, an authorization is permission to capture, and a completed capture is a payment result. Keeping those separate lets the organizer see when the whole purchase can proceed and when it must stop.
+## Challenges and lessons
 
-**Current boundaries**
+The difficult part was preserving the meaning of a commitment while a group plan changes. A buyer's unchanged basket can remain valid, but a changed amount, goods or shared pickup terms cannot inherit consent. Unknown provider responses and pending compensation must remain uncertain until verified. AI interpretations must remain visible and editable instead of silently excluding goods.
 
-One organizer/seller, one whole bundle, one buyer group and PLN. A bundle may mix unrelated kinds of objects. The company-asset example uses the same item-purchase workflow; it does not add billing, invoice processing or a company-liquidation system. Rehearsal mode visibly simulates payment scenarios; Sandbox mode uses PayPal's test environment. Separate buyer transactions do not create escrow or an atomic group payment. Physical packing and shipment are marked manually after the organizer performs them. Connection recovery refreshes state and clears its transient warning; it does not automatically retry payment POSTs or discard meaningful operation errors.
+## What's next
 
-**Evidence and links to complete**
+Validate the workflow with one real seller and an already interested group: measure time to a complete agreement, unsold leftovers and the effect of a buyer withdrawing. Production payments, identity verification and broader marketplace operations are outside this hackathon prototype.
 
-| Field | Status |
-| --- | --- |
-| Public source repository | [Powers-P1/lotsplit](https://github.com/Powers-P1/lotsplit), final application [`93f8570`](https://github.com/Powers-P1/lotsplit/commit/93f857046d8d762e6ac19849e0802066a830e267), 83 tests/typecheck/build PASS. Historical complete financial UI proof remains `ce58fff`/73. |
-| Functional demo | Public [judge setup guide](judge-access.md) and no-key rehearsal verified. Hosted launch is deferred to 11 November; private free live-provider judging access and key-sharing consent are still pending. |
-| Public YouTube video | Current public technical [V2.1](https://youtu.be/GmxRrGfU5Yo), 160 seconds, public receipt and anonymous oEmbed confirmed. Corrected audio/unchanged-picture review PASS; active Pro trial/exact-channel safelist covers this publication. [V1](https://youtu.be/_wEAe1O4wjc), 135 seconds, remains public backup. Final submission-film visual approval/selection is pending. |
-| Runtime AI models | Verified text response: `nvidia/nemotron-3-super-120b-a12b`. Verified vision response: `nvidia/Nemotron-3.5-Super-VL`. |
-| Real AI evidence | Original live preferences and one-image vision remain preserved. V4 adds one English preferences request through the normal UI: HTTP 200, live Nebius, six Garage Sale IDs, PLN 950 cap, no alternatives and required human confirmation. The proposal was not applied or saved; no fresh vision request occurred. See [verification](verification.md) for trace IDs and limits. |
-| PayPal Sandbox evidence | Later isolated normal-UI run: four exact consents, four genuine checkout approvals, four authorizations and four `COMPLETED` captures of PLN 180/210/220/230, totaling PLN 840. Independent provider GETs confirmed all results by 2026-10-30T18:24:11.557Z; packing unlocked, with zero packages marked packed/shipped. Ola/Bartek/Jan had clean returns. Maja's initial authorization dispatch failed with unknown precise cause; after the fix, one guarded manual UI action reused the original operation/frozen command/saved key, with one order and one authorization and no duplicate operation. One test payer served four sequential application buyer sessions. Separate later application-void and adapter-only refund probes are documented; app automatic refund compensation/UI and live webhooks remain unverified. |
-| Rehearsal evidence | Six complete examples use the same 24-item/four-buyer/six-items-each process with varied contents, shares, costs and budgets. Main totals: garage sale PLN 2820, office assets PLN 4800, workshop PLN 1580. Label every simulated operation and failure scenario as rehearsal. The added examples have no additional live AI or PayPal purchase claim. |
-| Render use | Planned for 11 November, not deployed now. No service or charges; deployed persistence and private free judge-access handoff remain pending. |
-| Local release checks | Final `93f8570`: 83/83, typecheck/build and scoped desktop/mobile UX PASS, including five UX fixes and the compiled 256 MiB overlap fixture. Historical full purchase is `ce58fff`/73; separate app void PLN 180 and adapter-only refund PLN 1 do not prove app refund compensation/UI. |
-| Checked source revision | [`93f857046d8d762e6ac19849e0802066a830e267`](https://github.com/Powers-P1/lotsplit/commit/93f857046d8d762e6ac19849e0802066a830e267) for current application. Full real Sandbox purchase remains [`ce58fff`](https://github.com/Powers-P1/lotsplit/commit/ce58fffab1cac39f8012d34bb4cba7f3e0b60430); older 72e/76 and ZIP records remain historical. |
-| Devpost status | [Portfolio saved](https://devpost.com/software/lotsplit); contest draft 1273698 is 4/5, not submitted. |
+## Try it
 
-Do not copy a statement about a feature into Devpost if it is absent from the shipped build. Record actual verification results; distinguish live provider evidence from seeded data, rehearsal scenes and mocked tests. The [final checklist](submission-checklist.md) tracks the publication and submission steps that remain.
+- [Final demonstration](https://youtu.be/gUwv5R6rCww) — English; source duration 2:50.
+- [Source](https://github.com/Powers-P1/lotsplit) — MIT.
+- [Local run and review instructions](judge-access.md) — Node 24, npm ci, npm run build, npm start; no-key rehearsal is clearly simulated.
+- Full live-provider testing uses the separately supplied private judge access; provider credentials are not published in this repository.
 
-The [same-panel internal review](internal-review.md) gave conditional GO for a final demonstration and identified remaining integration work. It is internal product tuning, not an official award, customer validation or a fresh numerical score.
+## Scope
+
+One configured seller/workspace, PLN, 1–24 catalogue positions, 2–6 buyers and at most two complete acceptable options per buyer. Prices precede private budgets. Examples: Office 15/4/3140 PLN; Garage 9/3/1035 PLN; Café 18/5/3550 PLN; Workshop 12/4/1800 PLN. These are sample data, not the only supported assortment.
+
+Separate payments are not escrow or an atomic group charge. No shipping, buyer discovery, production identity verification or automatic spending. Invitations display a private one-use link in the requesting browser and do not send email. Preparation does not prove a completed pickup.

@@ -4,11 +4,13 @@ export type { DemoCollectionId } from './demo-collections.js';
 /** All monetary values are integer grosz. Examples demonstrate generic item collections. */
 export type AppMode = 'rehearsal' | 'sandbox';
 export type Role = 'organizer' | 'buyer';
-export type BuyerId = 'maja' | 'ola' | 'bartek' | 'jan' | 'ewa';
+export type BuyerId = 'maja' | 'ola' | 'bartek' | 'jan' | 'ewa' | 'sixth';
 export type UserId = 'kasia' | BuyerId;
 export type Currency = 'PLN';
+export interface ImageRegion {x:number;y:number;width:number;height:number}
 
 export interface CollectionItem {
+  imageRegion?:ImageRegion;
   id: string;
   name: string;
   description: string;
@@ -18,7 +20,7 @@ export interface CollectionItem {
   confirmed: boolean;
   needsReview: boolean;
 }
-export type PublicItem = Omit<CollectionItem, 'shareCents'>;
+export type PublicItem = Omit<CollectionItem, 'shareCents'> & { fixedPriceCents?: number };
 export interface DeliveryAddress {
   recipient: string;
   street: string;
@@ -27,6 +29,10 @@ export interface DeliveryAddress {
   country: string;
 }
 export interface Preferences {
+  /** V2 entries are complete human-confirmed baskets. Never mix entries. */
+  basketOptions?: { id: string; itemIds: string[]; confirmedAt: string }[];
+  rejectedItemIds?: string[];
+  description?: string;
   preferredItemIds: string[];
   alternativeItemIds: string[];
   alternativesConfirmed: boolean;
@@ -43,8 +49,12 @@ export interface Participant {
   preferences?: Preferences;
   address?: DeliveryAddress;
   withdrawnAt?: string;
+  replacedBy?: BuyerId;
 }
 export interface Collection {
+  protocolVersion?: 2;
+  seller?: { name: string; recipientId: string };
+  pickup?: { location: string; startsAt: string; endsAt: string };
   id: string;
   name: string;
   description: string;
@@ -72,6 +82,7 @@ export interface Assignment {
   termsDigest: string;
 }
 export interface Consent {
+  contract?: 'own-basket-group-v2';
   buyerId: BuyerId;
   termsDigest: string;
   acceptedAt: string;
@@ -81,6 +92,7 @@ export interface Consent {
 export type OperationKind = 'order' | 'authorize' | 'capture' | 'void' | 'refund';
 export type OperationStatus = 'STARTED' | 'CREATED' | 'APPROVED' | 'AUTHORIZED' | 'COMPLETED' | 'PENDING' | 'VOIDED' | 'FAILED' | 'CANCELLED' | 'UNKNOWN';
 export interface PaymentOperation {
+  termsDigest?: string;
   id: string;
   idempotencyKey: string;
   kind: OperationKind;
@@ -110,6 +122,7 @@ export interface BuyerPayment {
 }
 export type PlanStatus = 'draft' | 'sent' | 'invalidated' | 'capturing' | 'reconciling' | 'paid' | 'failed';
 export interface AllocationPlan {
+  contractVersion?: 2;
   id: string;
   version: number;
   status: PlanStatus;
@@ -123,7 +136,7 @@ export interface AllocationPlan {
   failureReason?: string;
 }
 export interface NoSolution {
-  code: 'BUYER_COUNT' | 'MISSING_PREFERENCES' | 'INSUFFICIENT_BUDGET' | 'NO_ALLOCATION';
+  code: 'BUYER_COUNT' | 'MISSING_PREFERENCES' | 'INSUFFICIENT_BUDGET' | 'NO_ALLOCATION' | 'INCOMPLETE';
   message: string;
   activeBuyerCount: number;
   requiredBuyerCount: number;
@@ -165,7 +178,7 @@ export interface PlanAssignmentView extends Assignment {
   budgetCents: number;
   consent?: Consent;
   payment: PaymentView;
-  previous?: { itemIds: string[]; totalCents: number };
+  previous?: { itemIds: string[]; totalCents: number; payment?: PaymentView };
 }
 export interface OrganizerPlanView {
   id: string;
@@ -191,7 +204,7 @@ export interface BuyerPlanView {
   assignment: Assignment;
   consent?: Consent;
   payment: PaymentView;
-  previous?: { itemIds: string[]; totalCents: number };
+  previous?: { itemIds: string[]; totalCents: number; payment?: PaymentView };
   failureReason?: string;
   invalidationReason?: string;
 }
@@ -205,9 +218,10 @@ export interface PackingPackage {
   packedAt?: string;
   shippedAt?: string;
 }
-export type RehearsalScenario = 'start' | 'collecting' | 'plan' | 'agreements' | 'three-authorizations' | 'ready' | 'success' | 'unknown' | 'partial-failure' | 'refund-completed' | 'dropout' | 'v2';
+export type RehearsalScenario = 'start' | 'collecting' | 'plan' | 'agreements' | 'three-authorizations' | 'ready' | 'success' | 'unknown' | 'partial-failure' | 'refund-completed' | 'dropout' | 'v2' | 'incomplete' | 'expired' | 'hold-unknown';
 export interface DemoAccess { name: string; role: Role; inviteToken: string }
 export interface AnonymousView {
+  conceptVersion?: 2;
   authenticated: false;
   mode: AppMode;
   rehearsalCollectionId?: DemoCollectionId;
@@ -216,6 +230,9 @@ export interface AnonymousView {
   aiConfigured: boolean;
 }
 export interface ViewBase {
+  conceptVersion?: 2;
+  paymentDeadline?: string;
+  demoAccess?: DemoAccess[];
   authenticated: true;
   mode: AppMode;
   rehearsalCollectionId?: DemoCollectionId;
@@ -229,6 +246,9 @@ export interface ViewBase {
   simulationNotice?: string;
 }
 export interface OrganizerView extends ViewBase {
+  planCheck?: { status:'complete'|'blocked'|'waiting'|'incomplete'|'closed'; unassignedItemIds:string[] };
+  previousPlan?: { id:string; version:number; buyers:{buyerId:BuyerId;name:string;amountCents:number;payment:PaymentView}[] };
+  agentQuestion?: CheckedQuestion;
   role: 'organizer';
   collection: Collection;
   participants: Participant[];
@@ -240,6 +260,7 @@ export interface OrganizerView extends ViewBase {
   rehearsalCaptureOutcome: 'success' | 'unknown-ola' | 'failure-ola';
 }
 export interface BuyerView extends ViewBase {
+  agentQuestion?: CheckedQuestion;
   role: 'buyer';
   collection: PublicCollection;
   participant: Participant;
@@ -249,7 +270,23 @@ export interface BuyerView extends ViewBase {
   demoDefaults: { preferredItemIds: string[]; alternativeItemIds: string[]; budgetCents: number };
 }
 export type AppView = AnonymousView | OrganizerView | BuyerView;
-export interface ApiResult { state: AppView; approvalUrl?: string; operationId?: string; link?: string; message?: string }
+export interface CheckedQuestion {
+  id: string;
+  buyerId: BuyerId;
+  buyerName: string;
+  itemIds: string[];
+  amountCents: number;
+  question: string;
+  reason: string;
+  status: 'draft' | 'sent' | 'accepted' | 'declined';
+  contextDigest: string;
+  source: 'nebius' | 'rehearsal';
+  checked: true;
+  toolCalls: { name: string; summary: string }[];
+  model?: string;
+  createdAt: string;
+}
+export interface ApiResult { state: AppView; approvalUrl?: string; operationId?: string; link?: string; photoUrl?:string; message?: string }
 export interface ApiError { error: string; code: string; fields?: Record<string, string> }
 
 /** Route contract: every mutation returns ApiResult, GET /api/state returns AppView.
