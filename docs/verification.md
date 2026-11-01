@@ -1,6 +1,22 @@
-# Publication verification — 1 November 2026
+# Hosted publication verification — 1 November 2026
 
-Full typecheck, production build and 123/123 tests passed again before publishing this V2 source. The final [170-second film](https://youtu.be/gUwv5R6rCww) is public on the intended channel with English captions and disclosed AI scenes. These checks do not establish a running host or a submitted Devpost entry; those have separate receipts. The dated sections below preserve their original test scope and historical publication status.
+The current application revision is 013f8cc5cddec14aa775026986cbdb86e8edffc0. Full client/server typecheck, production build and **125/125 tests** passed. The final [170-second English film](https://youtu.be/gUwv5R6rCww) is public on the intended safelisted channel, with English captions and disclosed AI illustration scenes. The dated sections below preserve earlier scopes; current hosting is established by the checks here. Submission itself requires a separate Devpost receipt.
+
+## Hosted AI and PayPal
+
+- Render serves the actual application at https://lotsplit.onrender.com with a 1 GB persistent disk. Real photo inference returned six unconfirmed suggestions; the prepared twelve-item catalogue was independently reviewed, not extracted in full by that request. Real preference inference selected Marta's cordless set and Nina's workbench/clamps. The bounded NVIDIA/Nebius agent used five checked tool calls to propose Jan's PLN 190 alternative. The buyer accepted it separately from purchase consent.
+- Four actual Plan 1 holds were approved. Collection without all required agreements/holds was rejected with HTTP 409 and zero new financial operations. Lena left; PayPal GETs confirmed her PLN 720 and Jan's old PLN 190 holds VOIDED. Plan 2 retained Marta/Oskar's exact consent, operation and provider IDs. Changed/new Jan/Nina consents were initially absent and separately approved.
+- Actual captures of **380 + 430 + 480 + 510 = 1,800 PLN** were independently read back from PayPal as COMPLETED, with matching PLN amounts. Preparation opened only afterwards; all baskets remained physically unprepared. One existing test payer represented the fictional buyer sessions.
+- Two approved checkouts during setup needed their saved merchant returns resumed; the same order and operation were used, with no replacement order. The private judging gate was then given an origin-bound, signed HttpOnly/Secure/SameSite=Lax session. Integration tests cover return without Authorization, no application-role grant, tampering/expiry rejection and credential rotation. A live gate smoke check passed, and Nina's final checkout returned normally with that session. This is not a claim that every earlier checkout had a clean first return.
+- Unsigned webhook POST was rejected with HTTP 401. The archived completed ledger contains **18 verified PayPal event IDs**. A post-restart read-only server inspection confirmed all four completed captures and PLN 1,800 in the retained verification ledger while the active DATA_DIR was the separate fresh judge directory. The earlier non-financial state and uploaded-photo hash also survived a full restart.
+
+## Judging access and browser checks
+
+The fresh shared judging workspace has twelve positions and four confirmed preference baskets, with **zero purchase consents and zero holds pre-created**. Its lot deadline is after the judging period; the application still limits actual checkout to at most 24 hours from the first hold. Private access is prepared separately; provider keys stay server-side.
+
+https://lotsplit-demo.onrender.com is a separate free replay instance: actual AI produced the checked Jan alternative, while four rehearsal captures totalled PLN 1,800 with source=rehearsal and no PayPal provider configured. Its synthetic state is resettable/ephemeral and cold starts may take 50+ seconds. The English entry and Office's 15-item catalogue were exercised in the browser with no relevant console errors. The Sandbox mobile payment view at 390 px had no horizontal overflow; desktop payment/preparation views were inspected. These checks cover the exercised surfaces, not every device/browser.
+
+The separate actual injected-failure/refund evidence remains the earlier isolated local run described below; it was not repeated against the final hosted judge workspace. The film's failure interlude remains labelled simulation. No real buyer, ROI, production payment, escrow, atomic settlement or completed physical pickup is claimed.
 
 # Verification record — V2, 31 October 2026
 

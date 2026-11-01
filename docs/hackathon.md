@@ -2,7 +2,7 @@
 
 Official rules checked on 1 November 2026: https://paypalaihackathon.devpost.com/rules
 
-The deadline is 12 November 2026, 12:00 PST / 20:00 UTC / 21:00 Europe/Warsaw. Judge access must remain free through the judging period ending 15 December. The five equally weighted criteria are Technological Implementation, Design, Potential Impact, Innovation/Idea and Presentation.
+The deadline is 12 November 2026, 12:00 PST / 20:00 UTC / 21:00 Europe/Warsaw. Judge access must remain free through the judging period ending 15 December, 08:00 PST / 17:00 Europe/Warsaw. The five equally weighted criteria are Technological Implementation, Design, Potential Impact, Innovation/Idea and Presentation.
 
 The current V2 prototype combines meaningful AI with central PayPal Sandbox integration. Its public MIT source, working build/instructions and English presentation must describe the same application. Public hosting is optional under the rules; clear local setup must provide a functional build. No API secrets belong in public source.
 

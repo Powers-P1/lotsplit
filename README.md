@@ -73,6 +73,10 @@ Without Nebius, rehearsal explicitly identifies prepared sample AI; it does not 
 
 V2 uses `lotsplit-v2-rehearsal.sqlite` / `lotsplit-v2-sandbox.sqlite`. Historical V1 stores are not migrated or overwritten. Use a new DATA_DIR for another Sandbox lot once financial history exists; never reset a real Sandbox ledger to replay the demo.
 
+## Hosted review
+
+[Replayable hosted demo](https://lotsplit-demo.onrender.com): real AI and visibly simulated payments; its free instance can take 50+ seconds to wake. [Actual PayPal Sandbox](https://lotsplit.onrender.com): test money, separate buyer approvals and persistent financial history. Private browser logins, invitations and a test payer are supplied in the Devpost judging field; no API keys are public. The access gate uses a signed HttpOnly session so the browser can return from PayPal without forwarding an Authorization header. It does not grant a buyer/seller role or purchase consent.
+
 See [judge access](docs/judge-access.md), [accepted design and stories](docs/design-v2.md), [current verification](docs/verification.md) and [historical verification](docs/history/verification-through-2026-10-30.md). The [final English film](https://youtu.be/gUwv5R6rCww) shows this V2 flow. See [publication checklist](docs/submission-checklist.md) for the release and judging-access status; a video publication alone is not contest submission.
 
 ## Verification
@@ -83,6 +87,6 @@ npm run build
 npm test
 ```
 
-The V2 build passed 123 tests after the jury corrections, repeated with full typecheck and production build on 1 November 2026. Source-grounded exclusions remain editable before saving; the catalogue advances through individual confirmations, and the assistant avoids inventing a conflict when a complete plan exists. Separately, actual Nebius requests, genuine browser Sandbox approvals, preserved holds, four captures totaling 1,800 PLN and an isolated 380 PLN refund / 1,420 PLN hold cancellation flow were verified. Transport loss was deliberately injected into the isolated failure test; real PayPal GETs confirmed the resulting resources. One test payer served multiple logical buyers. These are test funds, fictional inventory and local integration evidence, not real buyers, production readiness or completed physical pickup.
+The current V2 build passed 125 tests, full typecheck and production build on 1 November 2026, including the private judging-session return checks. Source-grounded exclusions remain editable before saving; the catalogue advances through individual confirmations, and the assistant avoids inventing a conflict when a complete plan exists. Separately, actual Nebius requests, genuine browser Sandbox approvals, preserved holds, four captures totaling 1,800 PLN and an isolated 380 PLN refund / 1,420 PLN hold cancellation flow were verified. Transport loss was deliberately injected into the isolated failure test; real PayPal GETs confirmed the resulting resources. One test payer served multiple logical buyers. These are test funds, fictional inventory and separately verified local/hosted integration evidence, not real buyers, production readiness or completed physical pickup.
 
 React 19, Vite 8, TypeScript, Express 5 and Node 24 SQLite run in one process. The older V1 UI remains an isolated legacy path; its AG Grid chunk is lazy and is not requested by V2. Generated media provenance is recorded in `docs/v2-assets.json`; assets are distinct from the accepted design reference images.
