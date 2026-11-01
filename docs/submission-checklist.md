@@ -6,9 +6,9 @@
 - [x] Actual Render Sandbox with persistent 1 GB disk; separate free replay instance with actual AI and explicit payment simulation.
 - [x] Hosted AI, genuine test-payer approvals, selective repair, cancellations and four provider-confirmed PLN 1,800 captures verified.
 - [x] Signed webhook verification and retained financial ledger across restart verified; separate fresh judging workspace prepared without consent/holds.
-- [x] Private judge instructions prepared without provider API keys. No secret, receipt or private testing file is in Git.
+- [x] Private judge instructions saved and read back from the private Devpost field without provider API keys. No secret, payment receipt or private testing file is in Git.
 - [x] Hosting-end follow-up scheduled for 15 December at 18:00 Europe/Warsaw, after the current official judging end.
-- [ ] Finish public Devpost metadata, replace obsolete V1 gallery attachments, and enter approved private access.
-- [ ] Accept final rules/terms when confirmed, submit entry 1273698 and preserve its official receipt. A saved draft is not submission.
+- [x] Public Devpost metadata saved; three obsolete V1 gallery attachments removed; three current V2 screenshots and the final film retained.
+- [x] Final rules/terms accepted with explicit confirmation. Devpost accepted entry 1273698 and displayed "Project submitted!" on 1 November 2026. See [submission receipt](submission-receipt.md).
 
 Source: https://github.com/Powers-P1/lotsplit. Rules: https://paypalaihackathon.devpost.com/rules.
