@@ -633,6 +633,122 @@ async function pendingAuthorization() {
   return { ...f, second, order, approval, release };
 }
 
+for (const [parent, read] of [
+  [{ order_id: 'O3' }, 'spent'], [{ authorization_id: 'A3' }, 'lagged'],
+  [{ order_id: 'O3', authorization_id: 'A3' }, 'unavailable'],
+] as const) {
+  test(`a foreign capture reported by a saved parent freezes this group for manual review (parent GET: ${read})`, async () => {
+    const f = await fixture(); const { engine, store } = f;
+    try {
+      const plan = current(engine), count = f.writes.length;
+      const hold = f.authorizations.get('A3')!;
+      f.orders.get('O3')!.captureId = 'C-EXTERNAL';
+      f.authorizations.set('A3', { ...hold, status: 'UNKNOWN', rawStatus: 'CAPTURED' });
+      f.hooks.authorizationRead = async id => {
+        assert.equal(engine.view('kasia').gates.capture.allowed, false);
+        if (read === 'unavailable') throw new Error('Provider unavailable');
+        return { ...(read === 'lagged' ? hold : f.authorizations.get(id)!) };
+      };
+      const notice = event('foreign-capture', 'PAYMENT.CAPTURE.COMPLETED', 'C-EXTERNAL', parent);
+      await engine.verifiedWebhook(notice);
+      assert.equal(engine.view('kasia').gates.capture.allowed, false);
+      assert.equal(engine.view('kasia').progress.authorizations, 3);
+      assert.ok(f.reads.includes('authorize:A3') || f.reads.includes('order:O3'));
+      assert.match((engine.view('bartek') as BuyerView).plan!.payment.authorization!.lastError!, /manual/i);
+      const after = f.reads.length;
+      const reloaded = new LotSplitEngine(store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+      await reloaded.verifiedWebhook(notice); assert.equal(f.reads.length, after);
+      delete f.hooks.authorizationRead; await reloaded.reconcile('kasia');
+      await assert.rejects(reloaded.capture('kasia', plan.id), code('GATE_CLOSED'));
+      assert.equal(reloaded.view('kasia').gates.packing.allowed, false);
+      assert.equal(reloaded.view('kasia').gates.solve.allowed, false);
+      assert.equal(f.writes.length, count); assert.equal(current(reloaded).payments.bartek!.captureOperationId, undefined);
+    } finally { store.close(); }
+  });
+}
+
+test('unrelated and conflicting capture parents cannot revoke another buyer’s hold', async () => {
+  const f = await fixture();
+  try {
+    for (const [i, parent] of [undefined, { order_id: 'OUTSIDE' }, { authorization_id: 'OUTSIDE' }, { order_id: 'O2', authorization_id: 'A3' }].entries())
+      await f.engine.verifiedWebhook(event(`unrelated-capture-${i}`, 'PAYMENT.CAPTURE.COMPLETED', 'C-EXTERNAL', parent));
+    assert.equal(f.engine.view('kasia').gates.capture.allowed, true);
+    assert.deepEqual(f.reads, []);
+  } finally { f.store.close(); }
+});
+
+test('a different capture on the very same hold while its POST is in flight cannot be silently discarded', async () => {
+  const f = await fixture();
+  try {
+    f.hooks.captured = async id => {
+      if (id === 'A1') await f.engine.verifiedWebhook(event('two-captures-one-order', 'PAYMENT.CAPTURE.COMPLETED', 'FOREIGN', { order_id: 'O1' }));
+    };
+    await f.engine.capture('kasia', current(f.engine).id);
+    const capture = f.engine.snapshot().operations[current(f.engine).payments.maja!.captureOperationId!];
+    assert.equal(capture.providerId, 'C1'); assert.equal(capture.status, 'COMPLETED');
+    assert.deepEqual(f.writes.filter(w => w.kind === 'capture').map(w => w.id), ['A1']);
+    assert.equal(f.writes.some(w => w.kind === 'refund'), false);
+    assert.equal(f.engine.view('kasia').gates.packing.allowed, false);
+  } finally { f.store.close(); }
+});
+
+test('a matching order-only capture hint lets the saved POST confirm its own capture and the group finish', async () => {
+  const f = await fixture();
+  try {
+    f.hooks.captured = async (id, result) => {
+      if (id === 'A1') await f.engine.verifiedWebhook(event('own-early-capture', 'PAYMENT.CAPTURE.COMPLETED', result.providerId, { order_id: 'O1' }));
+    };
+    await f.engine.capture('kasia', current(f.engine).id);
+    assert.equal(current(f.engine).status, 'paid'); assert.equal(f.engine.view('kasia').gates.packing.allowed, true);
+    assert.deepEqual(f.writes.filter(w => w.kind === 'capture').map(w => w.id), ['A1', 'A2', 'A3', 'A4']);
+    await f.engine.verifiedWebhook(event('second-child-after-payment', 'PAYMENT.CAPTURE.PENDING', 'FOREIGN', { order_id: 'O1' }));
+    assert.equal(f.engine.view('kasia').gates.packing.allowed, false);
+    assert.equal(f.writes.some(w => w.kind === 'refund'), false);
+  } finally { f.store.close(); }
+});
+
+test('a foreign charge on a known order before its local authorization blocks the approval callback', async () => {
+  const f = await fixture(2);
+  try {
+    const order = await f.engine.authorize('bartek', current(f.engine).id); const count = f.writes.length;
+    await f.engine.verifiedWebhook(event('owned-order-only', 'PAYMENT.CAPTURE.COMPLETED', 'FOREIGN', { order_id: 'O3' }));
+    assert.deepEqual(f.reads, ['order:O3']);
+    await assert.rejects(f.engine.approve('bartek', order.operationId), code('GATE_CLOSED'));
+    assert.match((f.engine.view('bartek') as BuyerView).plan!.payment.order!.lastError!, /manual/i);
+    assert.equal(f.writes.length, count);
+  } finally { f.store.close(); }
+});
+
+test('an exact order read reporting an external capture requires review even if the separate hold read still lags', async () => {
+  const f = await fixture();
+  try {
+    f.orders.get('O3')!.captureId = 'C-EXTERNAL';
+    await f.engine.verifiedWebhook(event('order-reports-external-capture', 'CHECKOUT.ORDER.COMPLETED', 'O3'));
+    assert.equal(f.engine.view('kasia').gates.capture.allowed, false);
+    assert.match((f.engine.view('bartek') as BuyerView).plan!.payment.authorization!.lastError!, /manual/i);
+    assert.equal(current(f.engine).payments.bartek!.captureOperationId, undefined);
+    assert.equal(f.writes.some(w => w.kind === 'capture' || w.kind === 'refund'), false);
+  } finally { f.store.close(); }
+});
+
+test('when a signed parent capture and a lost local POST compete, order GET alone cannot assign the foreign charge to the local command', async () => {
+  const f = await fixture();
+  try {
+    f.hooks.captured = async () => {
+      f.orders.get('O1')!.captureId = 'FOREIGN';
+      f.captures.set('FOREIGN', { providerId: 'FOREIGN', status: 'COMPLETED', amountCents: 38000, currency: 'PLN' });
+      await f.engine.verifiedWebhook(event('possible-other-charge', 'PAYMENT.CAPTURE.COMPLETED', 'FOREIGN', { order_id: 'O1' }));
+      throw new PayPalProviderError('UNAVAILABLE', 'Response lost', true);
+    };
+    await f.engine.capture('kasia', current(f.engine).id); await f.engine.reconcile('kasia');
+    const capture = f.engine.snapshot().operations[current(f.engine).payments.maja!.captureOperationId!];
+    assert.equal(capture.providerId, undefined);
+    assert.deepEqual(f.writes.filter(w => w.kind === 'capture').map(w => w.id), ['A1']);
+    assert.equal(f.reads.includes('capture:FOREIGN'), false);
+    assert.equal(f.writes.some(w => w.kind === 'refund'), false);
+  } finally { f.store.close(); }
+});
+
 for (const related of [false, true]) {
   test(`a received early authorization void (${related ? 'order up link' : 'resource ID only'}) closes collection before its late successful response can open it`, async () => {
     const f = await pendingAuthorization(); const { engine, store, release } = f;
