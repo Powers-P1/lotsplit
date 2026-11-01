@@ -19,7 +19,7 @@ const refundEvent = (id: string, up = 'https://api.sandbox.paypal.com/v2/payment
 });
 const code = (expected: string) => (error: unknown) => error instanceof DomainError && error.code === expected;
 
-async function fixture() {
+async function fixture(initialHolds = 4) {
   const store = new SqliteStore<DomainState>(':memory:');
   const orders = new Map<string, ProviderResult>(), authorizations = new Map<string, ProviderResult>(), captures = new Map<string, ProviderResult>();
   const writes: { kind: string; id: string; key: string; amountCents?: number }[] = [];
@@ -72,10 +72,10 @@ async function fixture() {
   }
   engine.solve('kasia'); const plan = current(engine); engine.sendPlan('kasia', plan.id);
   for (const assignment of plan.assignments) engine.agree(assignment.buyerId, plan.id, assignment.termsDigest);
-  for (const assignment of plan.assignments) {
+  for (const assignment of plan.assignments.slice(0, initialHolds)) {
     const order = await engine.authorize(assignment.buyerId, plan.id); await engine.approve(assignment.buyerId, order.operationId);
   }
-  assert.equal(engine.view('kasia').gates.capture.allowed, true);
+  assert.equal(engine.view('kasia').gates.capture.allowed, initialHolds === plan.assignments.length);
   return { store, engine, provider, orders, authorizations, captures, writes, reads, hooks };
 }
 
@@ -140,6 +140,24 @@ test('a matching positive lifecycle observation does not label an unchanged succ
     assert.equal(engine.view('kasia').gates.capture.allowed, true); assert.equal(f.writes.length, count);
     assert.equal(Object.hasOwn(JSON.parse(JSON.stringify(authorization)), 'providerChange'), false);
   } finally { store.close(); }
+});
+
+test('an older successful hold read cannot clear a newer unresolved observation of the same hold', async () => {
+  const f = await fixture(); const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  try {
+    let reads = 0;
+    f.hooks.authorizationRead = async id => {
+      if (++reads === 1) { entered.resolve(); await release.promise; return { ...f.authorizations.get(id)! }; }
+      return { ...f.authorizations.get(id)!, status: 'UNKNOWN', rawStatus: 'CAPTURED' };
+    };
+    const older = f.engine.verifiedWebhook(event('first-hold-hint', 'PAYMENT.AUTHORIZATION.CREATED', 'A2'));
+    await entered.promise;
+    await f.engine.verifiedWebhook(event('newer-hold-hint', 'PAYMENT.AUTHORIZATION.CREATED', 'A2'));
+    assert.equal(f.engine.view('kasia').gates.capture.allowed, false);
+    release.resolve(); await older;
+    assert.equal((f.engine.view('ola') as BuyerView).plan?.payment.authorization?.status, 'UNKNOWN');
+    assert.equal(f.engine.view('kasia').gates.capture.allowed, false); assert.equal(f.writes.some(w => w.kind === 'capture'), false);
+  } finally { release.resolve(); f.store.close(); }
 });
 
 test('a confirmed external capture reversal preserves COMPLETED history and refunds only the other buyers', async () => {
@@ -426,6 +444,8 @@ test('an unknown spent authorization never prevents refunding its certain comple
     assert.deepEqual(f.writes.filter(write => write.kind === 'refund').map(write => write.id), ['C1']);
     assert.equal(engine.snapshot().operations[current(engine).payments.maja!.captureOperationId!].status, 'COMPLETED');
     assert.equal(engine.snapshot().operations[current(engine).payments.maja!.refundOperationId!].status, 'COMPLETED');
+    engine.solve('kasia');
+    assert.deepEqual((engine.view('kasia') as OrganizerView).priorPaymentBlockers, [], 'the full refund accounts for the spent authorization');
   } finally { store.close(); }
 });
 
@@ -561,3 +581,177 @@ test('a failed refund cannot clear a separately received adverse capture reversa
     assert.equal(f.writes.length, count);
   } finally { store.close(); }
 });
+
+for (const delivery of ['webhook', 'poll'] as const) {
+  test(`a capture declined via ${delivery} checks its separate hold and blocks a new purchase until cancellation is confirmed`, async () => {
+    const f = await fixture(); const { engine, store } = f;
+    try {
+      const capture = f.provider.captureAuthorization;
+      f.provider.captureAuthorization = async (id, cents, currency, key) => {
+        const result = await capture(id, cents, currency, key);
+        return id === 'A2' ? { ...result, status: 'PENDING' } : result;
+      };
+      await engine.capture('kasia', current(engine).id);
+      f.captures.set('C2', { ...f.captures.get('C2')!, status: 'FAILED', rawStatus: 'DECLINED' });
+      f.hooks.authorizationRead = async id => { if (id === 'A2') throw new Error('Hold status unavailable'); return { ...f.authorizations.get(id)! }; };
+      if (delivery === 'webhook') await engine.verifiedWebhook(event('pending-then-declined', 'PAYMENT.CAPTURE.DECLINED', 'C2'));
+      else await engine.reconcile('kasia');
+      assert.equal(current(engine).status, 'failed');
+      assert.ok(f.reads.includes('authorize:A2'), 'a failed capture is not evidence that its authorization was cancelled');
+      assert.deepEqual(f.writes.filter(w => w.kind === 'refund').map(w => w.id), ['C1']);
+      assert.deepEqual(f.writes.filter(w => w.kind === 'void').map(w => w.id), ['A3', 'A4']);
+      assert.equal(engine.view('kasia').gates.solve.allowed, false);
+      assert.throws(() => engine.solve('kasia'), code('GATE_CLOSED'));
+      delete f.hooks.authorizationRead;
+      const reloaded = new LotSplitEngine(store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+      assert.equal(reloaded.view('kasia').gates.solve.allowed, false);
+      await reloaded.reconcile('kasia'); await reloaded.reconcile('kasia');
+      assert.deepEqual(f.writes.filter(w => w.kind === 'void').map(w => w.id).sort(), ['A2', 'A3', 'A4']);
+      assert.equal(f.authorizations.get('A2')?.status, 'VOIDED');
+      assert.equal(reloaded.view('kasia').gates.solve.allowed, true);
+      reloaded.solve('kasia'); const replacement = current(reloaded); reloaded.sendPlan('kasia', replacement.id);
+      for (const a of replacement.assignments) reloaded.agree(a.buyerId, replacement.id, a.termsDigest);
+      assert.deepEqual((reloaded.view('kasia') as OrganizerView).priorPaymentBlockers, []);
+      assert.equal(reloaded.view('ola').gates.authorize.allowed, true);
+    } finally { store.close(); }
+  });
+}
+
+async function pendingAuthorization() {
+  const f = await fixture(1); const { engine } = f; const plan = current(engine);
+  const authorize = f.provider.authorizeOrder;
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  f.provider.authorizeOrder = async (id, key) => {
+    const result = await authorize(id, key);
+    if (id === 'O2') { entered.resolve(); await release.promise; }
+    return result;
+  };
+  const second = plan.assignments[1].buyerId;
+  const order = await engine.authorize(second, plan.id); const approval = engine.approve(second, order.operationId);
+  await entered.promise;
+  for (const a of plan.assignments.slice(2)) { const other = await engine.authorize(a.buyerId, plan.id); await engine.approve(a.buyerId, other.operationId); }
+  return { ...f, second, order, approval, release };
+}
+
+for (const related of [false, true]) {
+  test(`a received early authorization void (${related ? 'order up link' : 'resource ID only'}) closes collection before its late successful response can open it`, async () => {
+    const f = await pendingAuthorization(); const { engine, store, release } = f;
+    try {
+      const notification = event('early-void', 'PAYMENT.AUTHORIZATION.VOIDED', 'A2');
+      if (related) Object.assign(notification.resource, { links: [{ rel: 'up', href: 'https://api.sandbox.paypal.com/v2/checkout/orders/O2' }] });
+      f.authorizations.set('A2', { ...f.authorizations.get('A2')!, status: 'VOIDED' });
+      f.hooks.authorizationRead = async id => {
+        assert.equal(engine.view('kasia').gates.capture.allowed, false);
+        return { ...f.authorizations.get(id)! };
+      };
+      await engine.verifiedWebhook(notification); release.resolve(); const approval = await f.approval;
+      await engine.verifiedWebhook(notification);
+      assert.ok(f.reads.includes('authorize:A2')); assert.equal(engine.view('kasia').gates.capture.allowed, false);
+      assert.equal(engine.snapshot().operations[approval.operationId].status, 'AUTHORIZED', 'retain the command response in history');
+      assert.equal((engine.view(f.second) as BuyerView).plan?.payment.authorization?.status, 'VOIDED');
+      await assert.rejects(engine.capture('kasia', current(engine).id), code('GATE_CLOSED'));
+      assert.equal((await engine.approve(f.second, f.order.operationId)).operationId, approval.operationId);
+      assert.equal(f.writes.filter(w => w.kind === 'authorize').length, 4); assert.equal(f.writes.some(w => w.kind === 'capture'), false);
+    } finally { release.resolve(); await f.approval; store.close(); }
+  });
+}
+
+test('an unrelated authorization while the command is outstanding never replaces its real ID, even when the event names the same order', async () => {
+  const f = await pendingAuthorization();
+  try {
+    await f.engine.verifiedWebhook(event('wrong-hold', 'PAYMENT.AUTHORIZATION.VOIDED', 'A-OTHER', { order_id: 'O2' }));
+    f.release.resolve(); const result = await f.approval;
+    assert.equal(f.engine.snapshot().operations[result.operationId].providerId, 'A2');
+    assert.equal(f.engine.view('kasia').gates.capture.allowed, true);
+    assert.equal(f.reads.includes('authorize:A-OTHER'), false);
+  } finally { f.release.resolve(); await f.approval; f.store.close(); }
+});
+
+test('an early void survives a restart and a missing child on order GET; even a read before the POST returns preserves both facts', async () => {
+  const f = await pendingAuthorization();
+  try {
+    const id = current(f.engine).payments[f.second]!.authorizationOperationId!;
+    f.authorizations.set('A2', { ...f.authorizations.get('A2')!, status: 'VOIDED' });
+    await f.engine.verifiedWebhook(event('durable-early-void', 'PAYMENT.AUTHORIZATION.VOIDED', 'A2'));
+    const reloaded = new LotSplitEngine(f.store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    const readOrder = f.provider.getOrder;
+    f.provider.getOrder = async id => { const order = await readOrder(id); delete order.authorizationId; return order; };
+    await reloaded.reconcile('kasia', id);
+    assert.equal(reloaded.view('kasia').gates.capture.allowed, false);
+    assert.equal(f.writes.filter(w => w.kind === 'authorize').length, 4);
+    f.provider.getOrder = readOrder; await reloaded.reconcile('kasia', id);
+    assert.equal((reloaded.view(f.second) as BuyerView).plan?.payment.authorization?.status, 'VOIDED');
+    f.release.resolve(); await f.approval;
+    assert.equal(reloaded.snapshot().operations[id].status, 'AUTHORIZED', 'the delayed POST has its own immutable history');
+    assert.equal((reloaded.view(f.second) as BuyerView).plan?.payment.authorization?.status, 'VOIDED');
+    assert.equal(reloaded.view('kasia').gates.capture.allowed, false); assert.ok(f.reads.includes('authorize:A2'));
+    assert.equal(f.writes.some(w => w.kind === 'capture'), false);
+  } finally { f.release.resolve(); await f.approval; f.store.close(); }
+});
+
+test('too many early authorization hints pause collection, and checking only reads the proven hold', async () => {
+  const f = await pendingAuthorization();
+  try {
+    for (let i = 0; i < 30; i++) await f.engine.verifiedWebhook(event(`early-noise-${i}`, 'PAYMENT.AUTHORIZATION.VOIDED', `OTHER-${i}`));
+    const hints = Object.values(f.engine.snapshot().pendingResourceChanges!);
+    assert.equal(hints.length, 1); assert.ok(hints[0].changes.length <= 16); assert.equal(hints[0].overflow, true);
+    f.release.resolve(); await f.approval; await f.engine.verifiedWebhook(event('created-after-overflow', 'PAYMENT.AUTHORIZATION.CREATED', 'A2'));
+    assert.equal((f.engine.view(f.second) as BuyerView).plan?.payment.authorization?.status, 'UNKNOWN');
+    assert.equal(f.engine.view('kasia').gates.capture.allowed, false); assert.ok(f.reads.every(r => r === 'authorize:A2'));
+    assert.equal(f.writes.filter(w => w.kind === 'authorize').length, 4); assert.equal(f.writes.some(w => w.kind === 'capture'), false);
+  } finally { f.release.resolve(); await f.approval; f.store.close(); }
+});
+
+test('a matching early refund settles its original command only after the POST identifies it', async () => {
+  const f = await fixture(); const { engine, store } = f;
+  try {
+    const capture = f.provider.captureAuthorization;
+    f.provider.captureAuthorization = async (id, cents, currency, key) => id === 'A2' ? { providerId: 'C2', status: 'FAILED', amountCents: cents, currency } : capture(id, cents, currency, key);
+    f.hooks.refundRead = async id => ({ providerId: id, status: 'COMPLETED', captureId: 'C1', amountCents: 38000, currency: 'PLN' });
+    let providerIdBeforeResponse: string | undefined = 'not exercised';
+    f.provider.refundCapture = async (id, cents, currency, key) => {
+      f.writes.push({ kind: 'refund', id, amountCents: cents, key });
+      await engine.verifiedWebhook(event('local-refund-early', 'PAYMENT.REFUND.COMPLETED', 'R-LOCAL', { capture_id: id }));
+      providerIdBeforeResponse = engine.snapshot().operations[current(engine).payments.maja!.refundOperationId!].providerId;
+      return { providerId: 'R-LOCAL', status: 'PENDING', captureId: id, amountCents: cents, currency };
+    };
+    await engine.capture('kasia', current(engine).id);
+    const localId = current(engine).payments.maja!.refundOperationId!;
+    assert.equal(providerIdBeforeResponse, undefined);
+    assert.equal(engine.snapshot().operations[localId].providerId, 'R-LOCAL');
+    assert.equal(engine.snapshot().operations[localId].status, 'COMPLETED');
+    f.captures.set('C1', { ...f.captures.get('C1')!, status: 'UNKNOWN', rawStatus: 'REFUNDED' });
+    await engine.reconcile('kasia'); await assert.rejects(engine.retryCompensation('kasia', localId), code('RETRY_NOT_ALLOWED'));
+    assert.deepEqual(f.writes.filter(w => w.kind === 'refund').map(w => w.id), ['C1']);
+    assert.equal(engine.view('kasia').gates.solve.allowed, true);
+  } finally { store.close(); }
+});
+
+for (const [amount, lost] of [[100, false], [38000, false], [38000, true]] as const) {
+  test(`another refund of ${amount} cents cannot own a local refund when its response is ${lost ? 'lost' : 'delayed'}`, async () => {
+    const f = await fixture(); const { engine, store } = f;
+    try {
+      const capture = f.provider.captureAuthorization;
+      f.provider.captureAuthorization = async (id, cents, currency, key) => id === 'A2' ? { providerId: 'C2', status: 'FAILED', amountCents: cents, currency } : capture(id, cents, currency, key);
+      f.hooks.refundRead = async id => ({ providerId: id, status: 'FAILED', captureId: 'C1', amountCents: amount, currency: 'PLN' });
+      let beforeResponse: { providerId?: string; status: string } | undefined;
+      f.provider.refundCapture = async (id, cents, currency, key) => {
+        f.writes.push({ kind: 'refund', id, amountCents: cents, key });
+        await engine.verifiedWebhook({ ...refundEvent('different-refund'), event_type: 'PAYMENT.REFUND.FAILED' });
+        beforeResponse = engine.snapshot().operations[current(engine).payments.maja!.refundOperationId!];
+        if (lost) throw new PayPalProviderError('UNKNOWN_RESULT', 'Response lost', true);
+        return { providerId: 'R-LOCAL', status: 'COMPLETED', captureId: id, amountCents: cents, currency };
+      };
+      await engine.capture('kasia', current(engine).id);
+      const localId = current(engine).payments.maja!.refundOperationId!;
+      assert.equal(beforeResponse?.providerId, undefined, 'the capture identifies a parent payment, not a refund command');
+      assert.ok(f.reads.includes('refund:EXTERNAL-REFUND'));
+      const after = engine.snapshot().operations[localId];
+      assert.equal(after.providerId, lost ? undefined : 'R-LOCAL'); assert.equal(after.status, lost ? 'UNKNOWN' : 'COMPLETED');
+      await assert.rejects(engine.retryCompensation('kasia', localId), code('RETRY_NOT_ALLOWED'));
+      await engine.reconcile('kasia'); await engine.reconcile('kasia');
+      assert.equal(f.writes.filter(w => w.kind === 'refund').length, 1);
+      assert.equal(engine.view('kasia').gates.solve.allowed, !lost);
+    } finally { store.close(); }
+  });
+}
