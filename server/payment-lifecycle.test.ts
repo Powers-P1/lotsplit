@@ -774,6 +774,119 @@ test('review of a cancelled order from an earlier plan pauses pickup for the pai
   } finally { f.store.close(); }
 });
 
+test('a change to a superseded order blocks before its GET and preserves evidence of multiple captures across restart', async () => {
+  const f = await withSupersededOrder();
+  try {
+    let release!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const amount = { value: '380.00', currency_code: 'PLN' };
+    const adapter = new PayPalSandboxProvider({ clientId: 'fixture', clientSecret: 'fixture', fetch: async url => {
+      const path = new URL(String(url)).pathname;
+      if (path === '/v1/oauth2/token') return Response.json({ access_token: 'fixture-token', expires_in: 3600 });
+      assert.equal(path, '/v2/checkout/orders/O1'); await waiting;
+      return Response.json({ id: 'O1', intent: 'AUTHORIZE', status: 'COMPLETED', purchase_units: [{ amount, payments: {
+        authorizations: [{ id: 'OLD-A', status: 'CAPTURED', amount }],
+        captures: ['100.00', '280.00'].map((value, i) => ({ id: `FOREIGN-${i}`, status: 'COMPLETED', amount: { ...amount, value } })),
+      } }] });
+    } });
+    f.provider.getOrder = adapter.getOrder.bind(adapter);
+    const receiving = f.engine.verifiedWebhook(event('historical-approved', 'CHECKOUT.ORDER.APPROVED', 'O1'));
+    const allowedDuringRead = f.engine.view('kasia').gates.capture.allowed;
+    release(); await receiving;
+    assert.equal(allowedDuringRead, false);
+    const reloaded = new LotSplitEngine(f.store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    f.provider.getOrder = async () => ({ providerId: 'O1', status: 'APPROVED', amountCents: 38000, currency: 'PLN' });
+    await reloaded.reconcile('kasia');
+    await assert.rejects(reloaded.capture('kasia', current(reloaded).id), code('GATE_CLOSED'));
+    assert.equal(reloaded.view('kasia').gates.packing.allowed, false);
+    assert.equal(reloaded.snapshot().operations[f.first.operationId].status, 'CANCELLED');
+    assert.equal(f.writes.some(w => w.kind === 'capture' || w.kind === 'refund'), false);
+  } finally { f.store.close(); }
+});
+
+test('a transient unreadable historical order is checked read-only and a confirmed clean order releases the group', async () => {
+  const f = await withSupersededOrder();
+  try {
+    f.provider.getOrder = async () => { throw new Error('Sandbox response unavailable'); };
+    await f.engine.verifiedWebhook(event('unread-historical', 'CHECKOUT.ORDER.APPROVED', 'O1'));
+    const reloaded = new LotSplitEngine(f.store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    assert.equal(reloaded.view('kasia').gates.capture.allowed, false);
+    const before = f.writes.length;
+    f.provider.getOrder = async () => ({ providerId: 'O1', status: 'APPROVED', amountCents: 38000, currency: 'PLN' });
+    await reloaded.reconcile('kasia');
+    assert.equal(reloaded.view('kasia').gates.capture.allowed, true);
+    assert.equal(f.writes.length, before);
+  } finally { f.store.close(); }
+});
+
+test('a second order notice cannot reopen the group while an earlier read of its payment list is outstanding', async () => {
+  const f = await withSupersededOrder();
+  try {
+    let release!: () => void; const waiting = new Promise<void>(resolve => { release = resolve; });
+    let count = 0;
+    f.provider.getOrder = async id => {
+      if (++count === 1) { await waiting; throw new PayPalProviderError('UNEXPECTED_PAYMENT_COUNT', 'Two capture receipts', true); }
+      return { providerId: id, status: 'APPROVED', amountCents: 38000, currency: 'PLN' };
+    };
+    const first = f.engine.verifiedWebhook(event('notice-one', 'CHECKOUT.ORDER.APPROVED', 'O1'));
+    const second = f.engine.verifiedWebhook(event('notice-two', 'CHECKOUT.ORDER.COMPLETED', 'O1'));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const ready = f.engine.view('kasia').gates.capture.allowed;
+    release(); await Promise.all([first, second]);
+    assert.equal(ready, false); assert.equal(f.engine.view('kasia').gates.capture.allowed, false);
+    assert.equal(f.writes.some(w => w.kind === 'capture'), false);
+  } finally { f.store.close(); }
+});
+
+for (const failedSecond of [false, true]) test(`an unproven pre-invoice capture cannot authorize collection, preparation or a refund (second fails ${failedSecond})`, async () => {
+  const f = await fixture(); const oldStore = new SqliteStore<DomainState>(':memory:');
+  try {
+    const send = f.provider.captureAuthorization;
+    f.provider.captureAuthorization = async (...args) => {
+      const receipt = await send(...args);
+      return args[0] === 'A2' ? { ...receipt, status: 'PENDING' } : receipt;
+    };
+    await f.engine.capture('kasia', current(f.engine).id);
+    // Shape emitted by 013f8cc after GET order -> GET external child -> COMPLETED,
+    // with the second buyer still pending. The old format stored no provenance.
+    const legacy = f.engine.snapshot(), payments = current(f.engine).payments;
+    const first = legacy.operations[payments.maja!.captureOperationId!];
+    first.providerId = 'EXTERNAL-RECEIPT'; first.reconcileAttempts = 1;
+    for (const capture of [first, legacy.operations[payments.ola!.captureOperationId!]]) {
+      const command = legacy.paymentCommands![capture.id];
+      legacy.paymentCommands![capture.id] = { attempts: 1, command: { kind: 'capture', providerId: capture.parentProviderId!,
+        amountCents: capture.amountCents, currency: capture.currency, idempotencyKey: capture.idempotencyKey } };
+      assert.equal(command.command.kind, 'capture');
+    }
+    oldStore.initialize(legacy); const before = f.writes.length;
+    const upgraded = new LotSplitEngine(oldStore, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    f.captures.set('C2', { ...f.captures.get('C2')!, status: failedSecond ? 'FAILED' : 'COMPLETED' });
+    await upgraded.reconcile('kasia');
+    assert.deepEqual(f.writes.slice(before), []);
+    assert.equal(upgraded.view('kasia').gates.packing.allowed, false);
+    assert.equal((upgraded.view('maja') as BuyerView).plan!.payment.capture!.status, 'UNKNOWN');
+    assert.deepEqual(upgraded.snapshot().operations[first.id], first);
+    assert.deepEqual(upgraded.snapshot().paymentCommands![first.id], legacy.paymentCommands![first.id]);
+  } finally { f.store.close(); oldStore.close(); }
+});
+
+test('an already paid historical plan cannot prepare goods against an ambiguous pre-invoice capture', async () => {
+  const f = await fixture(); const previous = new SqliteStore<DomainState>(':memory:');
+  try {
+    const plan = current(f.engine); await f.engine.capture('kasia', plan.id);
+    const legacy = f.engine.snapshot(), first = legacy.operations[current(f.engine).payments.maja!.captureOperationId!];
+    const command = legacy.paymentCommands![first.id]; assert.equal(command.command.kind, 'capture');
+    first.reconcileAttempts = 1; delete command.command.invoiceId; delete command.captureReceiptId;
+    previous.initialize(legacy);
+    const upgraded = new LotSplitEngine(previous, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    assert.equal(current(upgraded).status, 'paid');
+    assert.equal(upgraded.view('kasia').gates.packing.allowed, false);
+    assert.throws(() => upgraded.updatePacking('kasia', 'maja', { checkedItemIds: plan.assignments[0].itemIds, packed: true }), code('GATE_CLOSED'));
+    assert.deepEqual(upgraded.snapshot().packing, legacy.packing);
+    assert.deepEqual(upgraded.snapshot().operations, legacy.operations);
+  } finally { f.store.close(); previous.close(); }
+});
+
 for (const laterFailure of [false, true]) {
   test(`a lost capture response followed by an unrelated payment on its order cannot adopt or refund that charge (later failure ${laterFailure})`, async () => {
     const f = await fixture();
@@ -811,6 +924,26 @@ test('the exact capture receipt for a lost local command allows its group to fin
     await reloaded.reconcile('kasia');
     assert.equal(reloaded.snapshot().operations[operationId].providerId, 'C1');
     assert.equal(reloaded.view('kasia').gates.packing.allowed, true);
+    assert.deepEqual(f.writes.filter(w => w.kind === 'capture').map(w => w.id), ['A1', 'A2', 'A3', 'A4']);
+  } finally { f.store.close(); }
+});
+
+for (const beforeFailure of [true, false]) test(`a matching signed capture hint and a lost POST (hint before loss ${beforeFailure}) recover solely from the command invoice`, async () => {
+  const f = await fixture();
+  try {
+    const notice = event('own-capture-before-receipt', 'PAYMENT.CAPTURE.COMPLETED', 'C1', { order_id: 'O1', authorization_id: 'A1' });
+    f.hooks.captured = async id => {
+      if (id !== 'A1') return;
+      if (beforeFailure) await f.engine.verifiedWebhook(notice);
+      throw new PayPalProviderError('LOST', 'Capture response lost', true);
+    };
+    await f.engine.capture('kasia', current(f.engine).id);
+    if (!beforeFailure) await f.engine.verifiedWebhook(notice);
+    const reloaded = new LotSplitEngine(f.store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    await reloaded.reconcile('kasia'); await reloaded.reconcile('kasia');
+    assert.equal(reloaded.snapshot().operations[current(reloaded).payments.maja!.captureOperationId!].providerId, 'C1');
+    assert.equal(reloaded.view('kasia').gates.packing.allowed, true);
+    assert.ok(f.reads.includes('order:O1') && f.reads.includes('capture:C1'));
     assert.deepEqual(f.writes.filter(w => w.kind === 'capture').map(w => w.id), ['A1', 'A2', 'A3', 'A4']);
   } finally { f.store.close(); }
 });
@@ -871,12 +1004,12 @@ test('an exact order read reporting an external capture requires review even if 
   } finally { f.store.close(); }
 });
 
-test('when a signed parent capture and a lost local POST compete, order GET alone cannot assign the foreign charge to the local command', async () => {
+for (const invoiceId of [undefined, 'OTHER-INVOICE']) test(`a signed parent hint cannot assign a foreign receipt with ${invoiceId ? 'another' : 'no'} invoice`, async () => {
   const f = await fixture();
   try {
     f.hooks.captured = async () => {
       f.orders.get('O1')!.captureId = 'FOREIGN';
-      f.captures.set('FOREIGN', { providerId: 'FOREIGN', status: 'COMPLETED', amountCents: 38000, currency: 'PLN' });
+      f.captures.set('FOREIGN', { providerId: 'FOREIGN', status: 'COMPLETED', amountCents: 38000, currency: 'PLN', invoiceId });
       await f.engine.verifiedWebhook(event('possible-other-charge', 'PAYMENT.CAPTURE.COMPLETED', 'FOREIGN', { order_id: 'O1' }));
       throw new PayPalProviderError('UNAVAILABLE', 'Response lost', true);
     };
@@ -884,8 +1017,42 @@ test('when a signed parent capture and a lost local POST compete, order GET alon
     const capture = f.engine.snapshot().operations[current(f.engine).payments.maja!.captureOperationId!];
     assert.equal(capture.providerId, undefined);
     assert.deepEqual(f.writes.filter(w => w.kind === 'capture').map(w => w.id), ['A1']);
-    assert.equal(f.reads.includes('capture:FOREIGN'), false);
+    assert.ok(f.reads.indexOf('order:O1') >= 0 && f.reads.indexOf('capture:FOREIGN') > f.reads.indexOf('order:O1'));
+    assert.equal(f.engine.view('kasia').gates.packing.allowed, false);
     assert.equal(f.writes.some(w => w.kind === 'refund'), false);
+  } finally { f.store.close(); }
+});
+
+test('proving the lost receipt by invoice does not clear a separate child reported on the same hold', async () => {
+  const f = await fixture();
+  try {
+    f.hooks.captured = async id => {
+      if (id !== 'A1') return;
+      for (const child of ['C1', 'ANOTHER-CHILD'])
+        await f.engine.verifiedWebhook(event(`hint-${child}`, 'PAYMENT.CAPTURE.COMPLETED', child, { order_id: 'O1', authorization_id: 'A1' }));
+      throw new PayPalProviderError('LOST', 'Capture response lost', true);
+    };
+    await f.engine.capture('kasia', current(f.engine).id); await f.engine.reconcile('kasia');
+    const payment = current(f.engine).payments.maja!, state = f.engine.snapshot();
+    assert.equal(state.operations[payment.captureOperationId!].providerId, 'C1');
+    assert.equal(state.paymentObservations![payment.authorizationOperationId!].unattributedCapture?.resourceId, 'ANOTHER-CHILD');
+    assert.deepEqual(f.writes.filter(w => w.kind === 'capture').map(w => w.id), ['A1']);
+    assert.equal(f.reads.includes('capture:ANOTHER-CHILD'), false); assert.equal(f.engine.view('kasia').gates.packing.allowed, false);
+  } finally { f.store.close(); }
+});
+
+test('an authorization callback that sees multiple payments cannot later recover a spendable hold from a lagging order', async () => {
+  const f = await fixture(3);
+  try {
+    const buyer = current(f.engine).assignments[3].buyerId;
+    const order = await f.engine.authorize(buyer, current(f.engine).id);
+    f.provider.authorizeOrder = async () => { throw new PayPalProviderError('UNEXPECTED_PAYMENT_COUNT', 'Multiple captures on the exact order', true); };
+    const auth = await f.engine.approve(buyer, order.operationId);
+    const owned = f.orders.get('O4')!; owned.authorizationId = 'AF';
+    f.authorizations.set('AF', { providerId: 'AF', orderId: 'O4', status: 'AUTHORIZED', amountCents: owned.amountCents, currency: owned.currency });
+    await f.engine.reconcile('kasia', auth.operationId);
+    assert.equal(f.engine.view('kasia').gates.capture.allowed, false);
+    assert.equal(f.engine.snapshot().paymentObservations![order.operationId].unattributedCapture?.resourceId, 'O4');
   } finally { f.store.close(); }
 });
 
