@@ -139,6 +139,15 @@ test('A capture timeout remains unknown and is never automatically retried', asy
   assert.equal(calls.filter(call => call.url.endsWith('/capture')).length, 1);
 });
 
+test('a capture sends its frozen merchant invoice and reads the invoice from the capture itself', async () => {
+  const { provider } = paypalMock(call => {
+    if (call.init.method === 'POST') assert.equal(call.body.invoice_id, 'LS-owned-command');
+    return json({ id: 'C-1', status: 'COMPLETED', amount: money, invoice_id: 'LS-owned-command' });
+  });
+  await provider.captureAuthorization('AUTH1', 18_000, 'PLN', 'saved-key', 'LS-owned-command');
+  assert.equal((await provider.getCapture('C-1')).invoiceId, 'LS-owned-command');
+});
+
 test('A completed provider response with a different or missing amount never confirms a charge', async () => {
   for (const returnedMoney of [{ value: '181.00', currency_code: 'PLN' }, { value: '180.00', currency_code: 'USD' }, undefined]) {
     const { provider } = paypalMock(() => json({ id: 'CAPTURE1', status: 'COMPLETED', amount: returnedMoney }));

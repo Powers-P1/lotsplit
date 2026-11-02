@@ -654,15 +654,17 @@ test('A to B to A terms require fresh consent; uninterrupted unchanged consent c
 for (const expiry of ['authorization', 'reservation', 'authorization-after-reconcile'] as const) {
   test(`${expiry} expiry after first capture prevents every later capture and compensates the completed payment`, async () => {
     let now = new Date(NOW); const store = new SqliteStore<DomainState>(':memory:'); const captures: string[] = [], refunds: string[] = [], voids: string[] = [];
+    let captureInvoice: string | undefined;
     const advance = () => { now = new Date(expiry === 'reservation' ? Date.parse(NOW) + 49 * 3600000 : Date.parse(NOW) + 2000); };
     const provider = providerStub({
-      async captureAuthorization(id, amountCents, currency) {
+      async captureAuthorization(id, amountCents, currency, _key, invoiceId) {
+        captureInvoice = invoiceId;
         captures.push(id);
         if (expiry === 'authorization-after-reconcile') throw Object.assign(new Error('lost response'), { uncertain: true });
         advance(); return { providerId: 'capture-maja', status: 'COMPLETED', amountCents, currency };
       },
       async getOrder(id) { return { providerId: id, status: 'AUTHORIZED', captureId: 'capture-maja' }; },
-      async getCapture(id) { advance(); return { providerId: id, status: 'COMPLETED', amountCents: 18000, currency: 'PLN' }; },
+      async getCapture(id) { advance(); return { providerId: id, status: 'COMPLETED', amountCents: 18000, currency: 'PLN', invoiceId: captureInvoice }; },
       async refundCapture(id, amountCents, currency) { refunds.push(id); return { providerId: 'refund-maja', status: 'PENDING', amountCents, currency }; },
       async voidAuthorization(id) { voids.push(id); return { providerId: id, status: 'PENDING' }; },
     });

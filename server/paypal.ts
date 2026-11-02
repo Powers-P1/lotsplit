@@ -26,11 +26,17 @@ export interface ProviderResult {
   currency?: string;
   orderId?: string;
   authorizationId?: string;
+  authorizationRawStatus?: string;
   captureId?: string;
+  invoiceId?: string;
   refundId?: string;
   expiresAt?: string;
   raw?: Record<string, unknown>;
   trace?: PaymentTrace;
+}
+
+export function reportsCapture(result: ProviderResult): boolean {
+  return !!result.captureId || ['CAPTURED', 'PARTIALLY_CAPTURED'].includes(result.authorizationRawStatus ?? result.rawStatus ?? '');
 }
 
 export interface CreateOrderInput {
@@ -48,7 +54,7 @@ export type WebhookHeaders = Headers | Record<string, string | string[] | undefi
 export interface PaymentProvider {
   createOrder(input: CreateOrderInput): Promise<ProviderResult>;
   authorizeOrder(orderId: string, idempotencyKey: string): Promise<ProviderResult>;
-  captureAuthorization(authorizationId: string, amountCents: number, currency: string, idempotencyKey: string): Promise<ProviderResult>;
+  captureAuthorization(authorizationId: string, amountCents: number, currency: string, idempotencyKey: string, invoiceId?: string): Promise<ProviderResult>;
   voidAuthorization(authorizationId: string, idempotencyKey: string): Promise<ProviderResult>;
   refundCapture(captureId: string, amountCents: number, currency: string, idempotencyKey: string): Promise<ProviderResult>;
   getOrder(orderId: string): Promise<ProviderResult>;
@@ -178,7 +184,7 @@ function paymentResult(source: Json, kind: 'authorization' | 'capture' | 'refund
     orderId: text(ids.order_id), authorizationId: text(ids.authorization_id),
     captureId: text(ids.capture_id), expiresAt: text(source.expiration_time),
     ...(kind === 'authorization' ? { authorizationId: providerId } : {}),
-    ...(kind === 'capture' ? { captureId: providerId } : {}),
+    ...(kind === 'capture' ? { captureId: providerId, invoiceId: text(source.invoice_id) } : {}),
     ...(kind === 'refund' ? { refundId: providerId } : {}),
   };
 }
@@ -212,6 +218,12 @@ function orderResult(source: Json, trace: PaymentTrace): ProviderResult {
   for (const child of [authorization, capture]) {
     if (text(child.id)) {
       const childMoney = readAmount(child.amount);
+      if (child === capture && childMoney.currency === money.currency && childMoney.amountCents !== undefined && money.amountCents !== undefined &&
+        childMoney.amountCents > 0 && childMoney.amountCents < money.amountCents) {
+        // A partial capture cannot pay the basket, but its identity must survive
+        // the order read so a later hold snapshot cannot hide it.
+        status = 'UNKNOWN'; continue;
+      }
       if (childMoney.amountCents !== money.amountCents || childMoney.currency !== money.currency) {
         throw new PayPalProviderError('PAYPAL_AMOUNT_MISMATCH', 'PayPal order and payment amounts do not match.', true);
       }
@@ -229,7 +241,7 @@ function orderResult(source: Json, trace: PaymentTrace): ProviderResult {
   }
   return {
     providerId, orderId: providerId, status, rawStatus, approvalUrl,
-    authorizationId: text(authorization.id), captureId: text(capture.id),
+    authorizationId: text(authorization.id), authorizationRawStatus: text(authorization.status), captureId: text(capture.id),
     expiresAt: text(authorization.expiration_time), ...money, raw: source, trace,
   };
 }
@@ -353,17 +365,22 @@ export class PayPalSandboxProvider implements PaymentProvider {
     // A callback token or PayerID by itself is never evidence of approval.
     const current = await this.getOrder(orderId);
     if (current.raw?.intent !== 'AUTHORIZE') throw new PayPalProviderError('WRONG_ORDER_INTENT', 'The PayPal order must use AUTHORIZE intent.', false, current.trace?.httpStatus, current.trace?.debugId);
+    // Preserve capture evidence from the order. A second, lagging hold GET
+    // cannot prove that a previously spent authorization is spendable again.
+    if (reportsCapture(current)) return { ...current, providerId: current.authorizationId ?? orderId, status: 'UNKNOWN' };
     if (current.authorizationId) return requireExpectedAmount({ ...await this.getAuthorization(current.authorizationId), orderId }, current.amountCents, current.currency);
     if (current.rawStatus !== 'APPROVED') throw new PayPalProviderError('ORDER_NOT_APPROVED', 'The buyer has not approved this order in PayPal sandbox.', false, current.trace?.httpStatus, current.trace?.debugId);
     const result = await this.request(`/v2/checkout/orders/${orderId}/authorize`, { method: 'POST', body: {}, idempotencyKey });
+    const authorizedOrder = requireExpectedId(orderResult(result.body, result.trace), orderId);
+    if (reportsCapture(authorizedOrder)) return { ...authorizedOrder, providerId: authorizedOrder.authorizationId ?? orderId, status: 'UNKNOWN' };
     const { authorization } = orderPayments(result.body);
     return requireExpectedAmount({ ...paymentResult(authorization, 'authorization', result.trace), orderId }, current.amountCents, current.currency);
   }
 
-  async captureAuthorization(authorizationId: string, amountCents: number, currency: string, idempotencyKey: string): Promise<ProviderResult> {
+  async captureAuthorization(authorizationId: string, amountCents: number, currency: string, idempotencyKey: string, invoiceId?: string): Promise<ProviderResult> {
     validId(authorizationId); paypalRequestId(idempotencyKey);
     const result = await this.request(`/v2/payments/authorizations/${authorizationId}/capture`, {
-      method: 'POST', idempotencyKey, body: { amount: amount(amountCents, currency), final_capture: true },
+      method: 'POST', idempotencyKey, body: { amount: amount(amountCents, currency), final_capture: true, ...(invoiceId ? { invoice_id: invoiceId } : {}) },
     });
     return requireExpectedAmount({ ...paymentResult(result.body, 'capture', result.trace), authorizationId }, amountCents, currency);
   }

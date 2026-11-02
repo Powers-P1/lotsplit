@@ -6,7 +6,7 @@ import type {
 } from '../shared/types.js';
 import { createCollection, createParticipants, DEMO_ACCESS, getDemoDefaults, sourceForMode, userForId } from './seed.js';
 import { DEFAULT_DEMO_COLLECTION_ID, isDemoCollectionId, type DemoCollectionId } from '../shared/demo-collections.js';
-import { PayPalProviderError, type CreateOrderInput, type PaymentProvider, type ProviderResult } from './paypal.js';
+import { PayPalProviderError, reportsCapture, type CreateOrderInput, type PaymentProvider, type ProviderResult } from './paypal.js';
 import { SqliteStore } from './store.js';
 import { createV2Collection, v2Participants, v2Defaults, v2User, V2_ACCESS, V2_BUYERS } from './v2-catalog.js';
 import { agentContextDigest, solveWholeBaskets, V2_CONTRACT, wholeBasketDigest } from './v2-rules.js';
@@ -18,7 +18,7 @@ export class DomainError extends Error {
 type FrozenPaymentCommand =
   | { kind: 'order'; input: CreateOrderInput }
   | { kind: 'authorize' | 'void'; providerId: string; idempotencyKey: string }
-  | { kind: 'capture' | 'refund'; providerId: string; amountCents: number; currency: string; idempotencyKey: string };
+  | { kind: 'capture' | 'refund'; providerId: string; amountCents: number; currency: string; idempotencyKey: string; invoiceId?: string };
 interface SavedPaymentCommand {
   command: FrozenPaymentCommand;
   attempts: number;
@@ -299,9 +299,10 @@ export class LotSplitEngine {
     const p = plan.payments[buyerId] ?? {};
     return { order: this.observedOp(state, p.orderOperationId), authorization: this.observedOp(state, p.authorizationOperationId), capture: this.observedOp(state, p.captureOperationId), void: this.op(state, p.voidOperationId), refund: this.observedOp(state, p.refundOperationId) };
   }
-  private needsCaptureReview(state: DomainState, plan: AllocationPlan) {
-    return Object.values(plan.payments).some(p => [p?.orderOperationId, p?.authorizationOperationId]
-      .some(id => id && state.paymentObservations?.[id]?.unattributedCapture));
+  private needsCaptureReview(state: DomainState) {
+    // Replacement orders and replacement plans keep their earlier operations in
+    // this collection's ledger. Their financial exposure outlives a plan pointer.
+    return Object.values(state.paymentObservations ?? {}).some(observation => !!observation.unattributedCapture);
   }
   private expired(state: DomainState) { return Math.min(Date.parse(state.collection.reservationExpiresAt), state.paymentDeadline ? Date.parse(state.paymentDeadline) : Infinity) <= this.now().getTime(); }
   private captureStarted(state: DomainState) { return Object.values(state.operations).some(op => op.kind === 'capture'); }
@@ -326,8 +327,8 @@ export class LotSplitEngine {
     return [...operations.values()];
   }
   private editingAllowed(state: DomainState) {
+    if (this.needsCaptureReview(state)) return false;
     return !state.plans.some(plan => {
-      if (this.needsCaptureReview(state, plan)) return true;
       const payments = plan.assignments.map(a => this.payment(state, plan, a.buyerId));
       if (!payments.some(payment => payment.capture)) return false;
       if (['capturing', 'reconciling', 'paid'].includes(plan.status)) return true;
@@ -365,7 +366,7 @@ export class LotSplitEngine {
     const active = state.participants.filter(p => p.active); const allAgreed = this.allAgreements(plan);
     const editable = this.editingAllowed(state); const reservationOk = !this.expired(state);
     const previousBlocked = !!plan && this.priorPaymentBlocked(state, plan.id);
-    const review = !!plan && this.needsCaptureReview(state, plan);
+    const review = this.needsCaptureReview(state);
     const paymentReady = this.options.mode === 'rehearsal' || !!this.options.paymentProvider;
     const readyAuthorizations = !!plan && this.currentCaptureTerms(state, plan) && plan.assignments.every(a => this.authorizationReady(state, plan, a));
     let authorize = !valid || !allAgreed ? denied('Waiting for all valid agreements to the current plan.')
@@ -389,7 +390,7 @@ export class LotSplitEngine {
       capture: review ? denied(manualCaptureReview) : !valid || plan.status !== 'sent' ? denied('The plan is not ready for payment capture.') : !reservationOk ? denied('The collection reservation has expired.')
         : !allAgreed ? denied('Waiting for all valid agreements.') : previousBlocked ? denied('Previous operations need to be resolved.')
         : !readyAuthorizations ? denied('Waiting for all valid authorizations for the exact amounts.') : !paymentReady ? denied('PayPal sandbox is not configured.') : allowed(),
-      packing: !review && valid && plan.status === 'paid' && plan.assignments.length === active.length && plan.assignments.every(a => {
+      packing: !review && !previousBlocked && valid && plan.status === 'paid' && plan.assignments.length === active.length && plan.assignments.every(a => {
         const payment = this.payment(state, plan, a.buyerId); return payment.capture?.status === 'COMPLETED' && !payment.refund;
       }) ? allowed() : denied('Preparation requires all confirmed COMPLETED captures for one valid plan.'),
       editPreferences: editable && collection.catalogStatus === 'confirmed' ? allowed() : denied(editable ? 'The catalog has not been confirmed yet.' : 'Payments are being settled.'),
@@ -762,7 +763,8 @@ export class LotSplitEngine {
       returnUrl: `${this.baseUrl}/payment/return?operationId=${encodeURIComponent(operation.id)}`,
       cancelUrl: `${this.baseUrl}/payment/cancel?operationId=${encodeURIComponent(operation.id)}` } }
       : kind === 'authorize' || kind === 'void' ? { kind, providerId: parentProviderId!, idempotencyKey: operation.idempotencyKey }
-      : { kind, providerId: parentProviderId!, amountCents: operation.amountCents, currency: operation.currency, idempotencyKey: operation.idempotencyKey };
+      : { kind, providerId: parentProviderId!, amountCents: operation.amountCents, currency: operation.currency, idempotencyKey: operation.idempotencyKey,
+        ...(kind === 'capture' ? { invoiceId: `LS-${id}` } : {}) };
     (state.paymentCommands ??= {})[id] = { command, attempts: 0 };
     const payment = plan.payments[buyerId] ??= {};
     const field: Record<OperationKind, keyof BuyerPayment> = { order: 'orderOperationId', authorize: 'authorizationOperationId', capture: 'captureOperationId', void: 'voidOperationId', refund: 'refundOperationId' };
@@ -788,7 +790,7 @@ export class LotSplitEngine {
           return undefined;
         }
         const plan = state.plans.find(p => p.id === current.planId);
-        if (['authorize', 'capture'].includes(current.kind) && (!plan || this.needsCaptureReview(state, plan) || this.expired(state) || !this.currentCaptureTerms(state, plan) ||
+        if (['authorize', 'capture'].includes(current.kind) && (!plan || this.needsCaptureReview(state) || this.expired(state) || !this.currentCaptureTerms(state, plan) ||
           this.priorPaymentBlocked(state, plan.id) || (current.kind === 'authorize' && plan.status !== 'sent') ||
           (current.kind === 'capture' && (!['capturing', 'reconciling'].includes(plan.status) ||
             !plan.assignments.every(a => this.payment(state, plan, a.buyerId).capture?.status === 'COMPLETED' || this.authorizationReady(state, plan, a)))))) {
@@ -809,7 +811,7 @@ export class LotSplitEngine {
         switch (command.kind) {
           case 'order': result = await provider.createOrder(command.input); break;
           case 'authorize': result = await provider.authorizeOrder(command.providerId, command.idempotencyKey); break;
-          case 'capture': result = await provider.captureAuthorization(command.providerId, command.amountCents, command.currency, command.idempotencyKey); break;
+          case 'capture': result = await provider.captureAuthorization(command.providerId, command.amountCents, command.currency, command.idempotencyKey, command.invoiceId); break;
           case 'void': result = await provider.voidAuthorization(command.providerId, command.idempotencyKey); break;
           case 'refund': result = await provider.refundCapture(command.providerId, command.amountCents, command.currency, command.idempotencyKey); break;
         }
@@ -845,6 +847,13 @@ export class LotSplitEngine {
   private applyResult(operationId: string, result: ProviderResult, commandResponse = false) {
     return this.mutate(state => {
       const operation = state.operations[operationId]; if (!operation) throw new DomainError('NOT_FOUND', 'Operation not found.', 404);
+      if (operation.kind === 'authorize' && operation.parentProviderId && (!result.orderId || result.orderId === operation.parentProviderId)) {
+        const owner = this.orderSpend(state, operation.parentProviderId, result);
+        if (owner) {
+          if (!isFinal(operation)) { operation.status = 'UNKNOWN'; operation.checkNeeded = true; operation.lastError = manualCaptureReview; }
+          return owner.id;
+        }
+      }
       if (isFinal(operation)) return;
       if (!commandResponse && operation.kind === 'capture' && !operation.providerId &&
         this.pendingChanges(state, operation.id)?.changes.some(change => change.ownerOperationId)) return;
@@ -943,7 +952,7 @@ export class LotSplitEngine {
       const next = this.mutate(state => {
         const plan = state.plans.find(p => p.id === planId)!;
         if (!plan || !['capturing', 'reconciling'].includes(plan.status)) return { kind: 'stop' as const };
-        if (this.needsCaptureReview(state, plan)) { plan.status = 'reconciling'; return { kind: 'stop' as const }; }
+        if (this.needsCaptureReview(state) || this.priorPaymentBlocked(state, plan.id)) { plan.status = 'reconciling'; return { kind: 'stop' as const }; }
         const views = plan.assignments.map(a => this.payment(state, plan, a.buyerId));
         if (views.some(p => p.capture && ['FAILED', 'CANCELLED'].includes(p.capture.status))) {
           plan.status = 'failed'; plan.failureReason = 'One capture failed. The purchase is paused; confirmed captures are being refunded and the remaining authorizations voided.';
@@ -957,7 +966,7 @@ export class LotSplitEngine {
           return { kind: 'stop' as const };
         }
         const pendingAuthorizationsReady = plan.assignments.every((assignment, index) => views[index].capture?.status === 'COMPLETED' || this.authorizationReady(state, plan, assignment));
-        if (this.expired(state) || !this.currentCaptureTerms(state, plan) || !pendingAuthorizationsReady || this.priorPaymentBlocked(state, plan.id) ||
+        if (this.expired(state) || !this.currentCaptureTerms(state, plan) || !pendingAuthorizationsReady ||
           views.some(p => p.void || p.refund) || (state.mode === 'sandbox' && !this.options.paymentProvider)) {
           plan.status = 'failed'; plan.failureReason = 'The next capture cannot start: the reservation, authorization, or plan terms have expired. We are settling the operations already started.';
           return { kind: 'compensate' as const };
@@ -1083,7 +1092,7 @@ export class LotSplitEngine {
       // An order lists its authorization/capture. A capture can have many refunds;
       // it cannot identify our lost refund response. Neither case permits replay.
       if (operation.kind === 'refund') return;
-      const competing = this.pendingChanges(state, operationId)?.changes.find(change => change.ownerOperationId);
+      const competing = this.pendingChanges(state, operationId)?.changes.find(change => change.ownerOperationId && change.eventType !== 'CHECK_CAPTURE_INVOICE');
       if (competing?.ownerOperationId) {
         // An external capture could also appear as this order's child. Only the
         // saved command's own response can resolve ownership while it is in flight.
@@ -1100,10 +1109,16 @@ export class LotSplitEngine {
         const orderId = operation.kind === 'authorize' ? operation.parentProviderId : this.payment(state, plan, operation.buyerId).order?.providerId;
         if (!provider || !orderId) throw new Error('The saved order is unavailable');
         const order = await provider.getOrder(orderId);
+        if (operation.kind === 'authorize' && await this.checkOrderCapture(orderId, order)) return;
         const childId = operation.kind === 'authorize' ? order.authorizationId : order.captureId;
         if (order.providerId !== orderId || order.amountCents !== operation.amountCents || order.currency !== operation.currency || !childId ||
           (operation.kind === 'capture' && order.authorizationId && order.authorizationId !== operation.parentProviderId))
           throw new Error('The original resource identity is not confirmed');
+        if (operation.kind === 'capture') {
+          const result = await this.readCaptureReceipt(operation, orderId, childId, provider);
+          if (result) { this.applyResult(operationId, result); await this.reconcileObservation(operationId); }
+          return;
+        }
         this.mutate(s => {
           const saved = s.operations[operationId];
           const pending = this.pendingChanges(s, operationId);
@@ -1154,9 +1169,13 @@ export class LotSplitEngine {
             const order = await provider.getOrder(payment.order.providerId);
             if (order.providerId !== payment.order.providerId || (order.authorizationId && order.authorizationId !== operation.parentProviderId))
               throw new Error('The original capture does not match its order.');
-            if (!order.captureId) { if (!readOnly) await this.dispatch(operation, true); return; }
-            result = await provider.getCapture(order.captureId);
-            if (result.providerId !== order.captureId) throw new Error('The capture does not match the saved order.');
+            if (!order.captureId) {
+              if (!await this.checkOrderCapture(payment.order.providerId, order) && !readOnly) await this.dispatch(operation, true);
+              return;
+            }
+            const recovered = await this.readCaptureReceipt(operation, payment.order.providerId, order.captureId, provider);
+            if (!recovered) return;
+            result = recovered;
           } else { if (!readOnly) await this.dispatch(operation, true); return; }
         } else if (operation.kind === 'void') {
           if (!operation.parentProviderId) return;
@@ -1187,7 +1206,8 @@ export class LotSplitEngine {
       ...previous, providerId: owner.providerId, status: 'UNKNOWN', checkNeeded: true, updatedAt: this.time(),
       generation: (previous?.generation ?? 0) + 1, unattributedCapture: { resourceId: resourceId.slice(0, 128), eventType }, lastError: manualCaptureReview,
     };
-    for (const plan of state.plans) if (['capturing', 'paid'].includes(plan.status) && this.needsCaptureReview(state, plan)) plan.status = 'reconciling';
+    const current = this.current(state);
+    if (current && ['capturing', 'paid'].includes(current.status)) current.status = 'reconciling';
   }
   private captureOwner(state: DomainState, authorizationId?: string, orderId?: string) {
     if (!authorizationId && !orderId) return;
@@ -1197,9 +1217,52 @@ export class LotSplitEngine {
       (authorizationId ? op.providerId === authorizationId : op.parentProviderId === orderId));
     if (orders.length > 1 || holds.length > 1) return;
     const hold = holds[0], order = orders[0];
-    if (hold && orderId && hold.parentProviderId !== orderId) return;
+    if (hold && orderId && hold.parentProviderId !== orderId) {
+      const linked = order && !hold.parentProviderId && state.plans.some(plan => {
+        const payment = plan.payments[hold.buyerId];
+        return payment?.orderOperationId === order.id && payment.authorizationOperationId === hold.id;
+      });
+      if (!linked) return;
+    }
     if (order && hold && order.buyerId !== hold.buyerId) return;
     return hold ?? order;
+  }
+  /** An order proves the parent, while the capture's merchant invoice proves the saved command. */
+  private async readCaptureReceipt(operation: PaymentOperation, orderId: string, captureId: string, provider: PaymentProvider) {
+    const mayRead = this.mutate(state => {
+      const saved = state.operations[operation.id];
+      const owner = this.captureOwner(state, saved.parentProviderId, orderId);
+      if (!owner) return false;
+      if (saved.providerId === captureId) return true; // The original POST returned during the order GET.
+      if (!saved.providerId && /^[A-Za-z0-9_-]{1,128}$/.test(captureId) &&
+        this.rememberChange(state, saved, captureId, 'CHECK_CAPTURE_INVOICE', undefined, owner)) return true;
+      this.quarantineCapture(state, owner, captureId, 'CAPTURE_RECEIPT_UNCONFIRMED');
+      return false;
+    });
+    if (!mayRead) return;
+    const capture = await provider.getCapture(captureId);
+    if (capture.providerId !== captureId) throw new Error('The capture does not match the saved order.');
+    const own = this.mutate(state => {
+      const saved = state.operations[operation.id];
+      const command = state.paymentCommands?.[saved.id];
+      const frozen = command?.command;
+      const sameParent = (!capture.orderId || capture.orderId === orderId) && (!capture.authorizationId || capture.authorizationId === saved.parentProviderId);
+      if (saved.providerId === captureId && sameParent) return true;
+      if (!saved.providerId && sameParent && frozen?.kind === 'capture' && frozen.providerId === saved.parentProviderId &&
+        frozen.idempotencyKey === saved.idempotencyKey && frozen.invoiceId && capture.invoiceId === frozen.invoiceId &&
+        capture.amountCents === frozen.amountCents && capture.currency === frozen.currency) {
+        saved.providerId = captureId;
+        this.bindPendingChanges(state, saved);
+        return true;
+      }
+      // An outstanding POST can still identify its own child. Until then the
+      // durable hint prevents replay. Legacy commands without an invoice need review.
+      if (command?.leaseExpiresAt && Date.parse(command.leaseExpiresAt) > this.now().getTime()) return false;
+      const owner = this.captureOwner(state, saved.parentProviderId, orderId);
+      if (owner) this.quarantineCapture(state, owner, captureId, 'CAPTURE_RECEIPT_UNCONFIRMED');
+      return false;
+    });
+    return own ? capture : undefined;
   }
   private currentUnidentified(state: DomainState, op: PaymentOperation) {
     return !op.providerId && (!isFinal(op) || !!this.pendingChanges(state, op.id)) && (state.paymentCommands?.[op.id]?.attempts ?? 0) > 0 &&
@@ -1226,13 +1289,21 @@ export class LotSplitEngine {
     this.quarantineCapture(state, owner, captureId ?? refundId!, type);
     return owner;
   }
+  private orderSpend(state: DomainState, orderId: string, result: ProviderResult) {
+    if (!reportsCapture(result)) return;
+    const owner = this.captureOwner(state, result.authorizationId, orderId) ?? this.captureOwner(state, undefined, orderId);
+    if (!owner) return;
+    if (result.captureId) return this.captureAtParent(state, owner, 'ORDER_REPORTED_CAPTURE', result.captureId);
+    // A spent hold with no child receipt cannot establish a successful local
+    // capture or justify replaying one. Only a previously identified child can account for it.
+    if (owner.kind === 'authorize' && Object.values(state.operations).some(op => op.kind === 'capture' &&
+      op.parentProviderId === owner.providerId && op.providerId && (isUnknown(op) || op.status === 'COMPLETED' || this.captureFullyRefunded(state, op)))) return;
+    this.quarantineCapture(state, owner, result.authorizationId ?? orderId, 'AUTHORIZATION_REPORTED_CAPTURE');
+    return owner;
+  }
   private async checkOrderCapture(orderId: string, result: ProviderResult) {
-    const captureId = result.captureId;
-    if (result.providerId !== orderId || !captureId) return false;
-    const parent = this.mutate(state => {
-      const owner = this.captureOwner(state, result.authorizationId, orderId);
-      if (owner) return this.captureAtParent(state, owner, 'ORDER_REPORTED_CAPTURE', captureId);
-    });
+    if (result.providerId !== orderId || !reportsCapture(result)) return false;
+    const parent = this.mutate(state => this.orderSpend(state, orderId, result));
     if (parent) await this.reconcileObservation(parent.id);
     return !!parent;
   }

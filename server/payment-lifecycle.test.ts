@@ -5,7 +5,7 @@ import { SqliteStore } from './store.js';
 import { v2Defaults } from './v2-catalog.js';
 import type { BuyerView, OrganizerView } from '../shared/types.js';
 import type { PaymentProvider, ProviderResult } from './paypal.js';
-import { PayPalProviderError } from './paypal.js';
+import { PayPalProviderError, PayPalSandboxProvider } from './paypal.js';
 
 const NOW = new Date('2026-11-01T09:00:00.000Z');
 const current = (engine: LotSplitEngine) => { const state = engine.snapshot(); return state.plans.find(plan => plan.id === state.currentPlanId)!; };
@@ -42,9 +42,9 @@ async function fixture(initialHolds = 4) {
       const result: ProviderResult = { providerId: id, status: 'AUTHORIZED', amountCents: order.amountCents, currency: order.currency };
       order.authorizationId = id; authorizations.set(id, result); return { ...result };
     },
-    async captureAuthorization(id, amountCents, currency, key) {
+    async captureAuthorization(id, amountCents, currency, key, invoiceId) {
       writes.push({ kind: 'capture', id, key, amountCents });
-      const result: ProviderResult = { providerId: `C${captures.size + 1}`, status: 'COMPLETED', amountCents, currency };
+      const result: ProviderResult = { providerId: `C${captures.size + 1}`, status: 'COMPLETED', amountCents, currency, invoiceId };
       captures.set(result.providerId, result);
       [...orders.values()].find(order => order.authorizationId === id)!.captureId = result.providerId;
       await hooks.captured?.(id, { ...result }); return { ...result };
@@ -716,6 +716,146 @@ test('a foreign charge on a known order before its local authorization blocks th
     await assert.rejects(f.engine.approve('bartek', order.operationId), code('GATE_CLOSED'));
     assert.match((f.engine.view('bartek') as BuyerView).plan!.payment.order!.lastError!, /manual/i);
     assert.equal(f.writes.length, count);
+  } finally { f.store.close(); }
+});
+
+async function withSupersededOrder(nextPlan = false) {
+  const f = await fixture(0); const { engine } = f;
+  const first = await engine.authorize('maja', current(engine).id);
+  engine.cancelPayment('maja', first.operationId);
+  if (nextPlan) {
+    engine.solve('kasia'); const plan = current(engine); engine.sendPlan('kasia', plan.id);
+    for (const a of plan.assignments) engine.agree(a.buyerId, plan.id, a.termsDigest);
+  }
+  const plan = current(engine);
+  for (const a of plan.assignments) { const order = await engine.authorize(a.buyerId, plan.id); await engine.approve(a.buyerId, order.operationId); }
+  assert.equal(engine.view('kasia').gates.capture.allowed, true);
+  assert.notEqual(current(engine).payments.maja?.orderOperationId, first.operationId);
+  f.orders.set('O1', { ...f.orders.get('O1')!, status: 'COMPLETED', captureId: 'FOREIGN' });
+  return { ...f, first, notice: event('historical-payment', 'PAYMENT.CAPTURE.COMPLETED', 'FOREIGN', { order_id: 'O1' }) };
+}
+
+test('review of a replaced order prevents the first and subsequent capture requests for this plan', async () => {
+  for (const duringCapture of [false, true]) {
+    const f = await withSupersededOrder();
+    try {
+      if (duringCapture) {
+        f.hooks.captured = async id => { if (id === 'A1') await f.engine.verifiedWebhook(f.notice); };
+        await f.engine.capture('kasia', current(f.engine).id);
+      } else {
+        await f.engine.verifiedWebhook(f.notice);
+        await assert.rejects(f.engine.capture('kasia', current(f.engine).id), code('GATE_CLOSED'));
+      }
+      assert.equal(f.engine.snapshot().operations[f.first.operationId].status, 'CANCELLED');
+      assert.equal(f.engine.snapshot().paymentObservations![f.first.operationId].unattributedCapture?.resourceId, 'FOREIGN');
+      const again = new LotSplitEngine(f.store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+      await again.verifiedWebhook(f.notice); await again.reconcile('kasia');
+      assert.equal(again.view('kasia').gates.capture.allowed, false);
+      assert.equal(again.view('kasia').gates.packing.allowed, false);
+      assert.deepEqual(f.writes.filter(w => w.kind === 'capture').map(w => w.id), duringCapture ? ['A1'] : []);
+      assert.equal(f.writes.some(w => w.kind === 'refund'), false);
+    } finally { f.store.close(); }
+  }
+});
+
+test('review of a cancelled order from an earlier plan pauses pickup for the paid replacement plan', async () => {
+  const f = await withSupersededOrder(true);
+  try {
+    const { engine } = f, plan = current(engine); await engine.capture('kasia', plan.id);
+    engine.updatePacking('kasia', 'maja', { checkedItemIds: plan.assignments[0].itemIds, packed: true });
+    const history = structuredClone(engine.snapshot().packing), count = f.writes.length;
+    await engine.verifiedWebhook(f.notice); await engine.reconcile('kasia');
+    const view = engine.view('kasia') as OrganizerView;
+    assert.ok(view.priorPaymentBlockers.some(blocker => blocker.operations.some(op => op.id === f.first.operationId)));
+    assert.equal(view.gates.packing.allowed, false);
+    assert.deepEqual(view.packing, []); assert.deepEqual(engine.snapshot().packing, history);
+    assert.throws(() => engine.updatePacking('kasia', 'ola', { checkedItemIds: plan.assignments[1].itemIds, packed: true }), code('GATE_CLOSED'));
+    assert.equal(f.writes.length, count);
+  } finally { f.store.close(); }
+});
+
+for (const laterFailure of [false, true]) {
+  test(`a lost capture response followed by an unrelated payment on its order cannot adopt or refund that charge (later failure ${laterFailure})`, async () => {
+    const f = await fixture();
+    try {
+      const original = f.provider.captureAuthorization;
+      f.provider.captureAuthorization = async (id, cents, currency, key) => {
+        if (id === 'A1') { f.writes.push({ kind: 'capture', id, key }); throw new PayPalProviderError('LOST', 'Request did not reach provider', true); }
+        if (laterFailure && id === 'A2') { f.writes.push({ kind: 'capture', id, key }); throw new PayPalProviderError('DECLINED', 'Definitive rejection', false); }
+        return original(id, cents, currency, key);
+      };
+      await f.engine.capture('kasia', current(f.engine).id);
+      f.orders.get('O1')!.captureId = 'FOREIGN';
+      f.captures.set('FOREIGN', { providerId: 'FOREIGN', status: 'COMPLETED', authorizationId: 'A1', orderId: 'O1',
+        amountCents: 38000, currency: 'PLN', ...(laterFailure ? { invoiceId: 'OTHER-MERCHANT-COMMAND' } : {}) });
+      await f.engine.reconcile('kasia');
+      await f.engine.verifiedWebhook(event('external-after-reconcile', 'PAYMENT.CAPTURE.COMPLETED', 'FOREIGN', { order_id: 'O1' }));
+      const op = f.engine.snapshot().operations[current(f.engine).payments.maja!.captureOperationId!];
+      assert.equal(op.providerId, undefined); assert.equal(op.status, 'UNKNOWN');
+      assert.deepEqual(f.writes.filter(w => w.kind === 'capture').map(w => w.id), ['A1']);
+      assert.equal(f.writes.some(w => w.kind === 'refund' || w.kind === 'void'), false);
+      assert.equal(f.engine.view('kasia').gates.packing.allowed, false);
+    } finally { f.store.close(); }
+  });
+}
+
+test('the exact capture receipt for a lost local command allows its group to finish without sending that command twice', async () => {
+  const f = await fixture();
+  try {
+    f.hooks.captured = async id => { if (id === 'A1') throw new PayPalProviderError('LOST', 'Response lost after capture', true); };
+    await f.engine.capture('kasia', current(f.engine).id);
+    const operationId = current(f.engine).payments.maja!.captureOperationId!;
+    assert.equal(f.engine.snapshot().operations[operationId].providerId, undefined);
+    assert.ok(f.captures.get('C1')!.invoiceId);
+    const reloaded = new LotSplitEngine(f.store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    await reloaded.reconcile('kasia');
+    assert.equal(reloaded.snapshot().operations[operationId].providerId, 'C1');
+    assert.equal(reloaded.view('kasia').gates.packing.allowed, true);
+    assert.deepEqual(f.writes.filter(w => w.kind === 'capture').map(w => w.id), ['A1', 'A2', 'A3', 'A4']);
+  } finally { f.store.close(); }
+});
+
+test('an already spent hold reported by the order during authorization recovery cannot be overwritten by a lagging authorization GET', async () => {
+  const f = await fixture(3);
+  try {
+    const buyer = current(f.engine).assignments[3].buyerId;
+    f.provider.authorizeOrder = async () => { throw new PayPalProviderError('LOST', 'Approval response lost', true); };
+    const order = await f.engine.authorize(buyer, current(f.engine).id);
+    const auth = await f.engine.approve(buyer, order.operationId);
+    const owned = f.orders.get('O4')!;
+    Object.assign(owned, { authorizationId: 'AF', authorizationRawStatus: 'PARTIALLY_CAPTURED' });
+    f.authorizations.set('AF', { providerId: 'AF', orderId: 'O4', status: 'AUTHORIZED', amountCents: owned.amountCents, currency: 'PLN' });
+    await f.engine.reconcile('kasia', auth.operationId);
+    assert.equal(f.engine.view('kasia').gates.capture.allowed, false);
+    assert.ok(f.engine.snapshot().paymentObservations![order.operationId].unattributedCapture);
+    assert.equal(f.writes.some(w => w.kind === 'capture' || w.kind === 'refund'), false);
+  } finally { f.store.close(); }
+});
+
+for (const partial of [false, true]) test(`an existing ${partial ? 'partial' : 'full'} capture in the authorization callback order remains evidence even if the separate authorization read lags`, async () => {
+  const f = await fixture(3);
+  try {
+    const buyer = current(f.engine).assignments[3].buyerId, amount = { value: (current(f.engine).assignments[3].totalCents / 100).toFixed(2), currency_code: 'PLN' };
+    const paths: string[] = [];
+    const adapter = new PayPalSandboxProvider({ clientId: 'fixture', clientSecret: 'fixture', fetch: async (url, init) => {
+      const path = new URL(String(url)).pathname; paths.push(path);
+      if (path === '/v1/oauth2/token') return Response.json({ access_token: 'fixture-token', expires_in: 3600 });
+      if (path === '/v2/checkout/orders/O4') return Response.json({ id: 'O4', intent: 'AUTHORIZE', status: 'COMPLETED',
+        purchase_units: [{ amount, payments: { authorizations: [{ id: 'AF', status: partial ? 'PARTIALLY_CAPTURED' : 'CAPTURED', amount }],
+          captures: [{ id: 'FF', status: 'COMPLETED', amount: partial ? { ...amount, value: '1.00' } : amount }] } }] });
+      if (path === '/v2/payments/authorizations/AF') return Response.json({ id: 'AF', status: 'CREATED', amount });
+      throw new Error(`Unexpected ${init?.method} ${path}`);
+    } });
+    const order = await f.engine.authorize(buyer, current(f.engine).id);
+    f.provider.authorizeOrder = adapter.authorizeOrder.bind(adapter);
+    await f.engine.approve(buyer, order.operationId);
+    assert.ok(paths.includes('/v2/checkout/orders/O4'));
+    assert.equal(f.engine.snapshot().paymentObservations?.[order.operationId]?.unattributedCapture?.resourceId, 'FF');
+    assert.equal(f.engine.view('kasia').gates.capture.allowed, false);
+    await f.engine.reconcile('kasia');
+    await assert.rejects(f.engine.capture('kasia', current(f.engine).id), code('GATE_CLOSED'));
+    assert.equal(current(f.engine).payments[buyer]!.captureOperationId, undefined);
+    assert.equal(f.writes.some(w => w.kind === 'capture' || w.kind === 'refund'), false);
   } finally { f.store.close(); }
 });
 
