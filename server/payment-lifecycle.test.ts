@@ -735,6 +735,112 @@ async function withSupersededOrder(nextPlan = false) {
   return { ...f, first, notice: event('historical-payment', 'PAYMENT.CAPTURE.COMPLETED', 'FOREIGN', { order_id: 'O1' }) };
 }
 
+// Exercise the actual Orders and Payments parsers with deliberately different
+// snapshots for the same child. Only the provider's read transport is replaced.
+function installOrderSnapshot(f: Awaited<ReturnType<typeof fixture>>, id: string, children: {
+  authorization?: { id: string; status: string }; capture?: { id: string; status: string };
+}, direct: Record<string, string | Error>) {
+  const amount = { currency_code: 'PLN', value: (f.orders.get(id)!.amountCents! / 100).toFixed(2) };
+  const paths: string[] = [];
+  const adapter = new PayPalSandboxProvider({ clientId: 'fixture', clientSecret: 'fixture', fetch: async url => {
+    const path = new URL(String(url)).pathname; paths.push(path);
+    if (path === '/v1/oauth2/token') return Response.json({ access_token: 'fixture-token', expires_in: 3600 });
+    if (path === `/v2/checkout/orders/${id}`) return Response.json({ id, status: 'COMPLETED', intent: 'AUTHORIZE', purchase_units: [{ amount, payments: {
+      authorizations: children.authorization ? [{ ...children.authorization, amount }] : [],
+      captures: children.capture ? [{ ...children.capture, amount }] : [],
+    } }] });
+    const childId = path.split('/').at(-1)!, status = direct[childId];
+    if (status instanceof Error) throw status;
+    assert.equal(typeof status, 'string', `Unexpected read of ${path}`);
+    return Response.json({ id: childId, status, amount });
+  } });
+  const oldOrder = f.provider.getOrder, oldHold = f.provider.getAuthorization, oldCapture = f.provider.getCapture;
+  f.provider.getOrder = child => child === id ? adapter.getOrder(child) : oldOrder(child);
+  f.provider.getAuthorization = child => Object.hasOwn(direct, child) ? adapter.getAuthorization(child) : oldHold(child);
+  f.provider.getCapture = child => Object.hasOwn(direct, child) ? adapter.getCapture(child) : oldCapture(child);
+  return paths;
+}
+
+for (const orderStatus of ['COMPLETED', 'REFUNDED', 'PARTIALLY_REFUNDED', 'PENDING']) test(`a known order capture reported as ${orderStatus} governs pickup across exact reads and restart`, async () => {
+  const f = await fixture();
+  try {
+    const plan = current(f.engine); await f.engine.capture('kasia', plan.id);
+    const captureId = current(f.engine).payments.maja!.captureOperationId!;
+    const children = { authorization: { id: 'A1', status: 'CAPTURED' }, capture: { id: 'C1', status: orderStatus } };
+    const paths = installOrderSnapshot(f, 'O1', children, { A1: 'CAPTURED', C1: orderStatus === 'PARTIALLY_REFUNDED' ? new Error('Unavailable') : 'COMPLETED' });
+    await f.engine.verifiedWebhook(event('order-observed-capture', 'CHECKOUT.ORDER.APPROVED', 'O1'));
+    const reloaded = new LotSplitEngine(f.store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    await reloaded.reconcile('kasia');
+    assert.equal(reloaded.view('kasia').gates.packing.allowed, orderStatus === 'COMPLETED');
+    assert.equal(reloaded.snapshot().operations[captureId].status, 'COMPLETED');
+    assert.equal(f.writes.some(w => w.kind === 'refund' && w.id === 'C1'), false);
+    if (orderStatus !== 'COMPLETED') {
+      assert.ok(paths.includes('/v2/payments/captures/C1'));
+      assert.throws(() => reloaded.updatePacking('kasia', 'maja', { checkedItemIds: plan.assignments[0].itemIds, packed: true }), code('GATE_CLOSED'));
+      assert.equal(reloaded.snapshot().paymentObservations![captureId].rawStatus, orderStatus);
+      children.capture.status = 'COMPLETED';
+      await reloaded.verifiedWebhook(event('later-clean-order', 'CHECKOUT.ORDER.COMPLETED', 'O1'));
+      assert.equal(reloaded.view('kasia').gates.packing.allowed, orderStatus === 'PENDING');
+    }
+  } finally { f.store.close(); }
+});
+
+for (const direct of ['CREATED', new Error('Unavailable')]) test(`a known order authorization VOIDED remains released after a ${direct instanceof Error ? 'failed' : 'lagging positive'} exact read`, async () => {
+  const f = await fixture();
+  try {
+    const children = { authorization: { id: 'A2', status: 'VOIDED' } };
+    const paths = installOrderSnapshot(f, 'O2', children, { A2: direct });
+    const firstCount = f.writes.length;
+    await f.engine.verifiedWebhook(event('order-has-released-hold', 'CHECKOUT.ORDER.APPROVED', 'O2'));
+    children.authorization.status = 'CREATED';
+    const reloaded = new LotSplitEngine(f.store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    await reloaded.verifiedWebhook(event('order-lags-after-release', 'CHECKOUT.ORDER.APPROVED', 'O2'));
+    await assert.rejects(reloaded.capture('kasia', current(reloaded).id), code('GATE_CLOSED'));
+    assert.ok(paths.includes('/v2/payments/authorizations/A2')); assert.equal(f.writes.length, firstCount);
+    assert.equal((reloaded.view('ola') as BuyerView).plan!.payment.authorization!.status, 'VOIDED');
+  } finally { f.store.close(); }
+});
+
+for (const superseded of [true, false]) test(`an unrecognized active hold on a ${superseded ? 'superseded' : 'current'} order is never adopted or automatically voided`, async () => {
+  const f = superseded ? await withSupersededOrder() : await fixture();
+  try {
+    const own = current(f.engine).payments.maja!, state = f.engine.snapshot(), count = f.writes.length;
+    const children: { authorization?: { id: string; status: string } } = { authorization: { id: 'H-OUTSIDE', status: 'CREATED' } };
+    installOrderSnapshot(f, 'O1', children, {});
+    await f.engine.verifiedWebhook(event('unexpected-hold', 'CHECKOUT.ORDER.APPROVED', 'O1'));
+    delete children.authorization;
+    const reloaded = new LotSplitEngine(f.store, { conceptVersion: 2, mode: 'sandbox', now: () => NOW, paymentProvider: f.provider });
+    await reloaded.reconcile('kasia'); await assert.rejects(reloaded.capture('kasia', current(reloaded).id), code('GATE_CLOSED'));
+    assert.equal(reloaded.view('kasia').gates.packing.allowed, false); assert.equal(f.writes.length, count);
+    assert.equal(reloaded.snapshot().operations[own.authorizationOperationId!].providerId, state.operations[own.authorizationOperationId!].providerId);
+    assert.equal(Object.values(reloaded.snapshot().operations).some(op => op.providerId === 'H-OUTSIDE' || op.parentProviderId === 'H-OUTSIDE'), false);
+  } finally { f.store.close(); }
+});
+
+for (const alreadyThere of [false, true]) test(`the first authorize callback distinguishes its POST from a hold already present before the POST (preexisting ${alreadyThere})`, async () => {
+  const f = await fixture(3);
+  try {
+    const plan = current(f.engine), buyer = plan.assignments[3].buyerId;
+    const order = await f.engine.authorize(buyer, plan.id), amount = { currency_code: 'PLN', value: (plan.assignments[3].totalCents / 100).toFixed(2) };
+    const held = { id: 'O4', intent: 'AUTHORIZE', status: 'COMPLETED', purchase_units: [{ amount, payments: { authorizations: [{ id: 'A4', status: 'CREATED', amount }] } }] };
+    let authorized = 0;
+    const adapter = new PayPalSandboxProvider({ clientId: 'fixture', clientSecret: 'fixture', fetch: async url => {
+      const path = new URL(String(url)).pathname;
+      if (path === '/v1/oauth2/token') return Response.json({ access_token: 'fixture-token', expires_in: 3600 });
+      if (path === '/v2/checkout/orders/O4') return Response.json(alreadyThere ? held : { id: 'O4', intent: 'AUTHORIZE', status: 'APPROVED', purchase_units: [{ amount }] });
+      if (path === '/v2/checkout/orders/O4/authorize') { authorized++; return Response.json(held); }
+      if (path === '/v2/payments/authorizations/A4') return Response.json({ id: 'A4', status: 'CREATED', amount });
+      throw new Error(`Unexpected ${path}`);
+    } });
+    f.provider.authorizeOrder = adapter.authorizeOrder.bind(adapter); f.provider.getAuthorization = adapter.getAuthorization.bind(adapter);
+    await f.engine.approve(buyer, order.operationId);
+    assert.equal(f.engine.view('kasia').gates.capture.allowed, !alreadyThere);
+    const op = f.engine.snapshot().operations[current(f.engine).payments[buyer]!.authorizationOperationId!];
+    assert.equal(op.providerId, alreadyThere ? undefined : 'A4'); assert.equal(authorized, alreadyThere ? 0 : 1);
+    assert.equal(f.writes.some(w => w.kind === 'void' || w.kind === 'refund'), false);
+  } finally { f.store.close(); }
+});
+
 test('review of a replaced order prevents the first and subsequent capture requests for this plan', async () => {
   for (const duringCapture of [false, true]) {
     const f = await withSupersededOrder();
