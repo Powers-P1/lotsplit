@@ -1,5 +1,7 @@
 # Judge setup and access
 
+> Historical snapshot, superseded by the [current README](../../README.md) and [current verification](../verification.md). Behavior and test counts below belong to the original snapshot. Documentation links have been rebased for this archive location; unavailable internal artifacts are marked as such.
+
 LOTSPLIT runs locally on a desktop with **Node.js 24 and npm**. The source includes the interface, server, SQLite storage and all demonstration assets. A hosted service is not required for this setup.
 
 ## Run the free, no-key rehearsal
@@ -22,7 +24,7 @@ LOTSPLIT runs locally on a desktop with **Node.js 24 and npm**. The source inclu
 
 No account, payment card, PayPal login or AI key is needed for rehearsal. Payments are explicitly simulated. With no Nebius key, AI proposals are explicitly labeled samples and do not analyze the supplied input. This path demonstrates the application and its consent, allocation, recovery and packing rules; it does not demonstrate live AI or PayPal integration.
 
-For a short review, open **Try the demo**, select **Ready to capture payments**, inspect the four accepted allocations, and use **Capture payments**. The simulated completed results unlock **View packing list**. **Unknown result**, **Jan withdraws** and **New plan with Ewa** exercise recovery and changed consent. These controls replace only the current rehearsal. The [README purchase walkthrough](../README.md#review-the-purchase-flow) describes the complete manual path.
+For a short review, open **Try the demo**, select **Ready to capture payments**, inspect the four accepted allocations, and use **Capture payments**. The simulated completed results unlock **View packing list**. **Unknown result**, **Jan withdraws** and **New plan with Ewa** exercise recovery and changed consent. These controls replace only the current rehearsal. The [README purchase walkthrough](../../README.md#review-the-purchase-flow) describes the complete manual path.
 
 Use separate browser profiles or different browsers for simultaneous organizer and buyer sessions. Ordinary tabs share one login. The role chooser in **Try the demo** is also suitable for sequential rehearsal review.
 
@@ -44,7 +46,7 @@ npm start
 
 Open the same URL. [The health endpoint](http://127.0.0.1:4319/api/health) should return `ok: true`, `mode: rehearsal`, and both provider flags `false` for the no-key setup. These flags describe configuration, not successful provider transactions. Remove `NODE_ENV=production` before returning to development mode.
 
-The English v4 source's clean install, production build, production start, development start, HTTP 200 entry page and health response were verified on 30 October 2026 using Node.js 24.19.0 and npm 11.17.0. The check copied no private environment, existing database or installed dependencies. The production output contained all 35 PNG assets. A separate API smoke check loaded **Ready to capture payments**, completed simulated captures, unlocked four packing lists and retained that state after a restart. These checks used a separate loopback port and did not repeat live provider tests or a browser walkthrough. See [the verification record](verification.md) for the separate integration evidence and its boundaries.
+The English v4 source's clean install, production build, production start, development start, HTTP 200 entry page and health response were verified on 30 October 2026 using Node.js 24.19.0 and npm 11.17.0. The check copied no private environment, existing database or installed dependencies. The production output contained all 35 PNG assets. A separate API smoke check loaded **Ready to capture payments**, completed simulated captures, unlocked four packing lists and retained that state after a restart. These checks used a separate loopback port and did not repeat live provider tests or a browser walkthrough. See [the verification record](verification-through-2026-10-30.md) for the separate integration evidence and its boundaries.
 
 ## Optional: real AI and PayPal Sandbox on your own local instance
 
@@ -56,11 +58,11 @@ This is a separate integration setup. PayPal Sandbox uses test money. Nebius req
 4. Keep all credentials in the ignored local `.env`; never copy them into browser code, the repository, screenshots or a source archive. Start the application with `npm run dev`, or with the compiled-build procedure above.
 5. The first Sandbox start creates a private `data/judge-sandbox/organizer-access.json`. Read the token in that file locally, then open `http://127.0.0.1:4319/?invite=` followed by its URL-encoded value. Use `kasia@lotsplit.example`. The app displays a one-use login link in the current session; it sends no email.
 6. Kasia creates each buyer invitation. Open each in a separate browser profile and use its matching sample email: `maja@lotsplit.example`, `ola@lotsplit.example`, `bartek@lotsplit.example`, `jan@lotsplit.example`, or `ewa@lotsplit.example`. These fictional addresses are access-flow identifiers.
-7. Follow the [purchase walkthrough](../README.md#review-the-purchase-flow): confirm the catalog and fixed shares; save each buyer's six preferences, alternatives and cap; calculate and send the plan; accept the exact terms and enter a fictitious delivery address; approve each authorization through genuine PayPal Sandbox checkout; return to the same buyer session; then capture as Kasia. Packing opens only after all four captures are confirmed `COMPLETED`.
+7. Follow the [purchase walkthrough](../../README.md#review-the-purchase-flow): confirm the catalog and fixed shares; save each buyer's six preferences, alternatives and cap; calculate and send the plan; accept the exact terms and enter a fictitious delivery address; approve each authorization through genuine PayPal Sandbox checkout; return to the same buyer session; then capture as Kasia. Packing opens only after all four captures are confirmed `COMPLETED`.
 
 PayPal return URLs must match `APP_ORIGIN`. If port 4319 is occupied, change both `PORT` and `APP_ORIGIN` to the same unused local port and restart. Do not delete or replace a Sandbox store with unresolved payment operations. Rehearsal reset controls are disabled in Sandbox.
 
-Local checkout and synchronous provider readback do not require a webhook. To test webhook delivery, a separately hosted HTTPS endpoint and a matching Sandbox `PAYPAL_WEBHOOK_ID` are required; follow [deployment instructions](deployment.md). Webhook verification is not claimed by the no-key or clean-install checks.
+Local checkout and synchronous provider readback do not require a webhook. To test webhook delivery, a separately hosted HTTPS endpoint and a matching Sandbox `PAYPAL_WEBHOOK_ID` are required; follow [deployment instructions](../deployment.md). Webhook verification is not claimed by the no-key or clean-install checks.
 
 ## PayPal launch timing
 
@@ -68,7 +70,7 @@ Current technical [160-second V2.1](https://youtu.be/GmxRrGfU5Yo) is already pub
 
 Hosted launch is deferred to **11 November 2026**, the day before the PayPal deadline. No hosted service or charges exist now. Until the private provider/judge configuration is supplied and the deployed path is tested, entrant-provided free live-provider access is pending. Do not treat the optional own-account setup as a completed private judging handoff.
 
-On launch day, deliberately choose hosted mode and an isolated store. Confirm the intended mixed physical bundle and English entry, not an accidental historical illustration fixture. Rehearsal exposes six examples; fresh Sandbox has its own seed/reset rules and no rehearsal selector. Use supported setup to prepare the intended bundle; preserve all PLN 840 proof stores. Save **Reserved until** through judging on 15 December; reloads do not extend it. Check mode/payment labels, privacy, return origin, optional HTTP Basic plus the separate app role/session, and restart persistence together. Provide necessary private access details through the judging instructions rather than exposing credentials in public source or footage. Keep the working path free and available through the judging period. The short [11 November checklist](submission-checklist.md#11-november-execution-checklist) records the remaining gates.
+On launch day, deliberately choose hosted mode and an isolated store. Confirm the intended mixed physical bundle and English entry, not an accidental historical illustration fixture. Rehearsal exposes six examples; fresh Sandbox has its own seed/reset rules and no rehearsal selector. Use supported setup to prepare the intended bundle; preserve all PLN 840 proof stores. Save **Reserved until** through judging on 15 December; reloads do not extend it. Check mode/payment labels, privacy, return origin, optional HTTP Basic plus the separate app role/session, and restart persistence together. Provide necessary private access details through the judging instructions rather than exposing credentials in public source or footage. Keep the working path free and available through the judging period. The short [11 November checklist](submission-checklist-v1.md#11-november-execution-checklist) records the remaining gates.
 
 ## Private live-integration access status
 

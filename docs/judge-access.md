@@ -2,6 +2,8 @@
 
 ## Hosted review
 
+- [Public product page](https://lotsplit.onrender.com/about): the problem, short workflow, actual product image and final film. No login is required for this page, [privacy](https://lotsplit.onrender.com/privacy) or [judge overview](https://lotsplit.onrender.com/judges).
+- [Optional guided rehearsal](https://lotsplit-demo.onrender.com/?guide=1): five short steps responding to the application state. Skip, close or restart it from the menu. Explicitly starting replaces shared disposable sample data; it never changes the separate Sandbox workspace. The guide explains prepared synthetic consents/holds and never grants actual purchase consent or calls actual payment operations.
 - [Replayable demo](https://lotsplit-demo.onrender.com): real NVIDIA/Nebius AI, explicitly simulated payments and repeatable examples/recovery states. The free instance may take 50+ seconds to wake and its synthetic state can reset on restart.
 - [PayPal Sandbox](https://lotsplit.onrender.com): actual test-payer approvals and provider operations, with persistent SQLite and photos. One shared configured workspace; completed financial history is retained.
 
@@ -9,7 +11,7 @@ Both use the private browser login supplied in the Devpost testing field. That f
 
 ## Short hosted review
 
-1. In the replay demo choose Office, Garage or Café to see different goods and group sizes. Create a lot starts an empty catalogue for your own reviewed inventory.
+1. Start the optional guide, or choose Office, Garage or Café to see different goods and group sizes. Create a lot starts an empty catalogue for your own reviewed inventory.
 2. For Workshop, open Demo controls → Workshop clearance → Confirmed options · run the assistant. Ask AI to check a question → Check with AI uses the actual model/tools and proposes Jan's checked PLN 190 alternative. The seller sends it; Jan accepts or refuses it as a complete option. Saving it does not approve a purchase.
 3. Ready to collect payments and Revised plan · exact holds kept provide short simulated collection and selective-repair runs. Interrupted hold confirmation, Unknown capture result, Refund and cancellations pending, Refund confirmed, Plan check incomplete and Reservation ended show separate recovery states. These shortcuts are rehearsal-only.
 4. For actual Sandbox follow the private invitations. The prepared fictional Workshop has confirmed catalogue/preferences, no purchase consent or PayPal hold pre-created. Every buyer separately approves exact basket terms and then PayPal. The seller collects only after all required current holds are ready. Each capture is separate; preparation unlocks after all are confirmed.
@@ -23,4 +25,6 @@ Use Node.js 24 and npm. Run npm ci, npm run build, then npm start from the folde
 
 Configure only server-side values from [README](../README.md). Windows: ./scripts/start-local.ps1 -Mode sandbox runs http://127.0.0.1:4320 with a separate persistent directory. Its organizer-access-v2.json contains the private organizer invitation. Use alex@lotsplit.example and matching buyer invitations. Use a new retained DATA_DIR for another Sandbox workspace after financial history exists. Changing the merchant on an existing V2 store is rejected. Real-money endpoints are disabled.
 
-The [final English video](https://youtu.be/gUwv5R6rCww) shows V2, fictional goods and test funds; its separate failure interlude is explicitly simulated. See [verification](verification.md) for tested results and boundaries. A saved Devpost draft is not proof of final submission.
+The [final English video](https://youtu.be/gUwv5R6rCww) shows V2, fictional goods and test funds; its separate failure interlude is explicitly simulated. See [verification](verification.md) for tested results and boundaries, [business assumptions](business.md) for the proposed payer and unvalidated pilot, and the [accepted submission receipt](submission-receipt.md). The entry is submitted to the PayPal AI Hackathon.
+
+Buyer sessions and unused sign-in links are bound to their lot and current identity. Creating a different lot requires new buyer invitations/sign-in; a reused buyer slot does not carry its former access. The release migration invalidates older unscoped sessions and links, without changing stored financial history. If prompted after deployment, use the existing private invitation to sign in again. The configured seller remains the workspace owner.

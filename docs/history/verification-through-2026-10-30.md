@@ -1,5 +1,7 @@
 # Verification record — 30 October 2026
 
+> Historical snapshot, superseded by the [current README](../../README.md) and [current verification](../verification.md). Behavior and test counts below belong to the original snapshot. Documentation links have been rebased for this archive location; unavailable internal artifacts are marked as such.
+
 Final public application [`93f8570`](https://github.com/Powers-P1/lotsplit/commit/93f857046d8d762e6ac19849e0802066a830e267) passed **83/83 tests, full TypeScript and production build**, plus scoped desktop/mobile UX and solver checks. A **160-second V2.1 technical cut is public**; final submission-film visual approval is pending, with V1 also available as backup. The full PLN 840 purchase proof remains `ce58fff` / 73 tests, with separate later application-void and adapter-refund probes. Three delivery gates remain: final film visual approval/selection, hosted/private judge access and final Devpost submission. The last two remain planned for **11 November 2026**. No host or Render charges exist; no private key-sharing consent or access handoff is implied.
 
 ## Current source and scoped final quality evidence
@@ -33,7 +35,7 @@ The lead verified the existing active Epidemic Pro trial through **8 November**,
 
 Official PayPal rules checked **30 October 2026**: deadline **12 November 2026, 12:00 PST / 20:00 UTC / 21:00 Europe/Warsaw**; judging ends **15 December 2026, 08:00 PST / 16:00 UTC / 17:00 Europe/Warsaw**. Recheck on 11 November. The working build, truthful PayPal+AI evidence, public MIT source, English public YouTube film under three minutes and free judge access must match the entry. Keep secrets out of public source/footage. [Official rules](https://paypalaihackathon.devpost.com/rules)
 
-Current source and technical/audio/publication checks passed; final artistic selection remains open. This is not a universal bug-free claim. No feature expansion is planned. See the [11 November checklist](submission-checklist.md).
+Current source and technical/audio/publication checks passed; final artistic selection remains open. This is not a universal bug-free claim. No feature expansion is planned. See the [11 November checklist](submission-checklist-v1.md).
 
 ## Financial UI proof at ce58fff — unchanged
 
@@ -49,7 +51,7 @@ Public source: [Powers-P1/lotsplit](https://github.com/Powers-P1/lotsplit). The 
 | Completed purchase | Four authorizations followed by one organizer capture-button action produced four captures: PLN 180, 210, 220 and 230. Independent provider GET readbacks returned HTTP 200 and `COMPLETED` for all four by **2026-10-30T18:24:11.557Z**, totaling PLN 840. The verifier used OAuth and read-only provider GETs, not financial POSTs. |
 | Packing | Plan status `paid`; packing unlocked for four packages. Zero packages were marked packed or shipped. |
 | Original Sandbox preservation | The earlier instance remained byte-identical at revision 97, with its original four completed captures totaling PLN 840. The new run used an isolated Sandbox store. |
-| Public setup | The public [judge setup guide](judge-access.md) provides a verified clean no-key rehearsal path. Its simulated payments/sample AI remain visibly labeled. Entrant-provided free private live-provider judge access is still pending; optional own-account setup does not complete that obligation. |
+| Public setup | The public [judge setup guide](judge-access-v1.md) provides a verified clean no-key rehearsal path. Its simulated payments/sample AI remain visibly labeled. Entrant-provided free private live-provider judge access is still pending; optional own-account setup does not complete that obligation. |
 | Film and submission | The 160-second [V2.1 technical cut](https://youtu.be/GmxRrGfU5Yo) is public; final film visual approval is pending, with V1 also available. Portfolio saved, draft 1273698 is 4/5 and not submitted. Hosted/private access and final handoff remain 11 November. |
 
 The first failed Maja return is excluded from clean-success footage. Clean-return scenes must use the recorded Ola/Bartek/Jan path; a Maja recovery scene must retain its manual-recovery label. This is test money, prepared fictional inventory and one test payer, not evidence of real customers or returns on investment. Separate payments provide neither escrow nor atomic group settlement. No live refund, void or webhook result was added by this run.
@@ -135,7 +137,7 @@ For connection recovery, blocking `GET /api/state` retained the page and showed 
 
 Screenshots were displayed inline by CUA without saved image-file paths. No saved screenshot artifacts are claimed. The review used the in-app browser only; other engines and untested viewports were not exercised. Its QA tab was closed, viewport/network overrides were reset, and no temporary server or script was left behind. The application servers are runtime deliverables managed separately from the source archive.
 
-The additional examples are prepared rehearsal content, not new live PayPal purchases or full-catalog AI extraction. The real provider results below remain tied to the original illustration collection. The [same-panel internal review](internal-review.md) describes the existing jurors' conditional GO and requirements; it predates the added examples and does not supply a fresh score.
+The additional examples are prepared rehearsal content, not new live PayPal purchases or full-catalog AI extraction. The real provider results below remain tied to the original illustration collection. The same-panel internal review (historical internal artifact, not distributed) describes the existing jurors' conditional GO and requirements; it predates the added examples and does not supply a fresh score.
 
 ## Previous three-example snapshot
 

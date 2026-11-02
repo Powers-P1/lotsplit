@@ -1,114 +1,51 @@
-# Hosted publication verification — 1 November 2026
+# Release verification — 2 November 2026
 
-The current application revision is 013f8cc5cddec14aa775026986cbdb86e8edffc0. Full client/server typecheck, production build and **125/125 tests** passed. The final [170-second English film](https://youtu.be/gUwv5R6rCww) is public on the intended safelisted channel, with English captions and disclosed AI illustration scenes. The dated sections below preserve earlier scopes; current hosting is established by the checks here. Submission itself requires a separate Devpost receipt.
+Application candidate: **73748e00e2803f05d39b620ba3f74b4ee1c8baa0**. **217/217 tests**, complete client/server type checking and production build passed. Clean npm ci, tests, typecheck and production build were repeated by the release lead on 2 November. Manual deployment and final hosted readback for this candidate are pending. The actual hosted integration evidence below belongs to the earlier, explicitly identified revision.
 
-## Hosted AI and PayPal
+The [entry is submitted](submission-receipt.md). The [170-second English film](https://youtu.be/gUwv5R6rCww) is public on the intended channel, with English captions and illustrative AI scenes disclosed. [Judge access](judge-access.md) explains the separate replay/Sandbox modes, free local setup and private testing credentials. Provider keys and private receipts are never committed.
 
-- Render serves the actual application at https://lotsplit.onrender.com with a 1 GB persistent disk. Real photo inference returned six unconfirmed suggestions; the prepared twelve-item catalogue was independently reviewed, not extracted in full by that request. Real preference inference selected Marta's cordless set and Nina's workbench/clamps. The bounded NVIDIA/Nebius agent used five checked tool calls to propose Jan's PLN 190 alternative. The buyer accepted it separately from purchase consent.
-- Four actual Plan 1 holds were approved. Collection without all required agreements/holds was rejected with HTTP 409 and zero new financial operations. Lena left; PayPal GETs confirmed her PLN 720 and Jan's old PLN 190 holds VOIDED. Plan 2 retained Marta/Oskar's exact consent, operation and provider IDs. Changed/new Jan/Nina consents were initially absent and separately approved.
-- Actual captures of **380 + 430 + 480 + 510 = 1,800 PLN** were independently read back from PayPal as COMPLETED, with matching PLN amounts. Preparation opened only afterwards; all baskets remained physically unprepared. One existing test payer represented the fictional buyer sessions.
-- Two approved checkouts during setup needed their saved merchant returns resumed; the same order and operation were used, with no replacement order. The private judging gate was then given an origin-bound, signed HttpOnly/Secure/SameSite=Lax session. Integration tests cover return without Authorization, no application-role grant, tampering/expiry rejection and credential rotation. A live gate smoke check passed, and Nina's final checkout returned normally with that session. This is not a claim that every earlier checkout had a clean first return.
-- Unsigned webhook POST was rejected with HTTP 401. The archived completed ledger contains **18 verified PayPal event IDs**. A post-restart read-only server inspection confirmed all four completed captures and PLN 1,800 in the retained verification ledger while the active DATA_DIR was the separate fresh judge directory. The earlier non-financial state and uploaded-photo hash also survived a full restart.
+## Candidate checks
 
-## Judging access and browser checks
+- Public /about, /privacy and /judges expose static presentation only. Application roles, APIs, photos and payment returns retain their gate. Existing photo/screenshot assets are compressed and fonts self-hosted with their license. Desktop1536×1024 and mobile390×844 were inspected; no generated interface image is used as interactive UI.
+- The optional rehearsal guide observes actual state, is role-aware and supports skip/close/restart. Explicit start replaces shared synthetic data. Prepared consents/holds are disclosed. It does not run AI, grant purchase consent or collect actual Sandbox funds. Full guide, selective repair, Back/Forward and reload were exercised.
+- Grounded AI exclusions remain editable; both whole options are checked. A complete plan does not become an invented conflict. Catalogue review advances after each confirmation. Mobile plan review uses full-width buyer rows with44px disclosure targets.
+- Verified external payment changes are checked against exact provider resources. Released holds close collection; reversed/unknown captures close pickup. Original commands remain separate from later observations. Duplicate or late messages cannot resurrect a confirmed release.
+- Early verified capture changes are retained before the response attaches the capture ID, bound atomically and checked before another capture. Missing identity resolves only through the saved order, without blindly repeating the command. A16-hint bound fails closed on overflow.
+- Confirmed captures can be refunded after group failure even if their spent authorization is uncertain. Pending refunds block pickup. An exact failed/cancelled refund with an intact exact capture can clear a temporary warning; independent reversal remains adverse. New offline tests cover early/lost/error responses, lag, restart, wrong IDs/money/currency, unrelated hints and overflow.
+- A declined capture is not proof that its authorization was released. Compensation reads the saved hold, voids a confirmed active hold once and blocks new checkout until unresolved exposure is settled. Early authorization changes are retained and exact-ID bound like capture changes. A parent capture or matching amount never identifies a local refund: only its saved response ID establishes that provenance. An unidentified local refund with competing verified activity stays unresolved for manual provider review instead of sending a new-key refund.
+- A verified capture on a saved authorization/order that cannot be attributed to a local command quarantines the current payment and group. Exact provider reads do not turn an external capture into a local receipt or silently refund it. Contradictory parents cannot attach another buyer's resource. Manual provider review is required; duplicate events, stale reads and restart do not reopen collection or pickup.
+- Unresolved exposure on a superseded checkout or earlier plan also closes collection and physical preparation for the lot. Recovery without a saved capture ID requires the exact command-specific invoice marker from the capture resource, alongside exact parents, amount and currency; legacy commands without this proof require manual review. An external charge is never imported just because it shares a hold or amount, and is never automatically refunded. Capture evidence already present in an approval callback cannot be erased by a lagging authorization read.
+- Recognizable owned captures can also be recovered after an earlier event hint; an unrelated second child remains a separate blocker. A known historical order stays blocked while an unsupported or failed exact read is unresolved. Pre-cutover captures recovered without attributable proof are quarantined before financial actions or preparation, while their original operation rows remain intact. Tests also load ledgers generated by the actual earlier engine code; ordinary direct receipts remain compatible.
+- Exact order reads ingest the state of both authorization and capture children before subsequent reads. A known child ID does not erase a refund, partial refund, pending state or released hold. Terminal changes survive lagging positive reads; only a consistent later order can resolve a transient pending check. An unexpected active hold on a current or superseded order requires manual review and is never adopted or cancelled automatically.
+- An unresolved payment observation takes precedence over expiry/cancellation reassurance. An independent offline engine-to-React SSR probe confirmed manual review and closed gates after a foreign capture notice plus25-hour expiry; no false no-collection assertion and no further financial write were rendered.
+- Buyer sessions/unused links are bound to the lot and participant identity. Old buyer slots cannot expose a new person's private limit or approve for them. Migration invalidates older unscoped credentials without changing financial snapshots. Scoped access survives an ordinary restart; existing private invitations allow signing in again.
+- A controlled local failed-refund fixture showed “Refund needs review” and “Seller review needed”, with pickup paused; it did not falsely report a pending refund. Synthetic lifecycle UI fixtures displayed an unavailable hold, changed payment and blocked pickup rather than false success/new checkout. Browser emulation had some coordinate-mapping errors; semantic keyboard activation and actual layouts were checked separately. Physical-phone touch is not certified.
+- Published YouTube playback reached readyState4, seeking reached1:59 and playback resumed. The manual English caption track was selectable and visible. Independent UX inspection also played the landing's privacy-enhanced embed and public fallback. Earlier blank frames were transient. Complete decode, ASR, timing, stems, loudness and true-peak checks are audio evidence; full subjective listening is not claimed.
 
-The fresh shared judging workspace has twelve positions and four confirmed preference baskets, with **zero purchase consents and zero holds pre-created**. Its lot deadline is after the judging period; the application still limits actual checkout to at most 24 hours from the first hold. Private access is prepared separately; provider keys stay server-side.
+## Actual hosted AI and PayPal — revision013f8cc, 1 November
 
-https://lotsplit-demo.onrender.com is a separate free replay instance: actual AI produced the checked Jan alternative, while four rehearsal captures totalled PLN 1,800 with source=rehearsal and no PayPal provider configured. Its synthetic state is resettable/ephemeral and cold starts may take 50+ seconds. The English entry and Office's 15-item catalogue were exercised in the browser with no relevant console errors. The Sandbox mobile payment view at 390 px had no horizontal overflow; desktop payment/preparation views were inspected. These checks cover the exercised surfaces, not every device/browser.
+This evidence predates the new lifecycle/session delta and is not relabelled as coverage of every new failure case.
 
-The separate actual injected-failure/refund evidence remains the earlier isolated local run described below; it was not repeated against the final hosted judge workspace. The film's failure interlude remains labelled simulation. No real buyer, ROI, production payment, escrow, atomic settlement or completed physical pickup is claimed.
+- Actual vision returned six unconfirmed suggestions; the full twelve-position catalogue was independently reviewed. Actual preference requests selected Marta's cordless kit and Nina's workbench/clamps. The bounded NVIDIA/Nebius agent used five checked tools to propose Jan's190PLN alternative, accepted separately from purchase consent.
+- Four actual Plan1 holds were approved. Missing required consents/holds blocked collection with409 and no new capture operation. Lena withdrew; direct provider reads confirmed obsolete720/190PLN holds VOIDED. Plan2 retained Marta/Oskar's exact consent, operation and provider IDs; Jan/Nina needed fresh consent/holds.
+- Four actual captures **380+430+480+510=1,800PLN** were directly confirmed COMPLETED at PayPal with exact PLN amounts. Preparation opened afterwards; no basket was physically prepared. One test payer represented fictional buyer sessions.
+- Two early approved returns needed original-operation resumption. The judging gate was repaired with an origin-bound signed HttpOnly/Secure/SameSite=Lax session, without granting a buyer/seller role. The final post-fix return completed normally; earlier returns are not called flawless.
+- Unsigned webhook POST returned401. The archived ledger retained18 verified event IDs and all four captures after restart. The fresh active judging workspace was separate: twelve positions, four confirmed preferences, zero purchase consents/holds. Later reviewers may change it.
+- A separate free replay service used actual AI and explicitly simulated payments, with no PayPal keys. Its shared synthetic state is ephemeral and cold wake may take50+seconds. Each host has a20-request daily AI cap; manual review and a free no-key local rehearsal remain available.
+- The existing Sandbox webhook subscription was read back after adding PaymentsV2's PAYMENT.CAPTURE.DECLINED. Listener, webhook identity and other subscriptions were retained. Subscription is not delivery proof for every event type.
 
-# Verification record — V2, 31 October 2026
+## Earlier real failure/compensation
 
-## Current delta — jury fixes, 31 October 2026
+A separate isolated local Sandbox ledger used real test holds and an externally voided authorization. A transport wrapper discarded a successful380PLN capture response. UNKNOWN stopped later captures; reconciliation found the original saved resource without another capture dispatch. Subsequent definite failure produced a confirmed380PLN refund and1,420PLN of confirmed voided holds. PREVIOUSLY_VOIDED needed an adapter correction and one explicit guarded retry; this was not a flawless initial run.
 
-The three requested corrections are implemented without extending the product scope.
+The film's failure interlude is a **separate labelled simulation**, not footage of those refunds. Real bank-pending timing, real chargebacks and every race were not reproduced at PayPal. Preserve [historical V2/hosted evidence](history/verification-through-hosted-013f8cc-2026-11-01.md) and [earlier V1 history](history/verification-through-2026-10-30.md).
 
-- AI exclusions now carry source wording. Local grounding checks named items, actual refusal clauses and permissions; unsupported wording is omitted with a review warning. The buyer can directly correct the visible exclusion checkboxes before saving. Grounding checks provenance, not perfect understanding of every natural-language category.
-- The seller assistant uses an authoritative, read-only complete-option check. A feasible garage/office plan is shown as complete and opens the plan without calling AI. Both accepted options are considered. Missing options, an unfinished check and a genuinely blocked plan have separate copy. The incompatible Workshop repair shortcut is disabled elsewhere and rejected before any state mutation.
-- The catalogue opens the first unreviewed item and advances after each explicit confirmation. In the nine-item Garage browser test this removed all nine Review clicks: nine item confirmations plus the final catalogue confirmation, instead of nineteen actions. Zero price and missing condition still blocked confirmation. Human review, fixed-price sums and the final catalogue gate remain required. Expanded desktop/mobile details were inspected; a colspan layout issue found during QA was fixed. The English Replace photo control opened the browser file chooser and handled a draft upload.
-- Rehearsal refunds/cancellations identify simulation rather than claiming PayPal/bank activity. Returning after expiry or withdrawal now opens the buyer's financial status. Same-page account navigation closes its menu.
+## Limits
 
-Validation: **123/123 tests passed**, zero failures/skips/cancellations, after the final production build; full client/server TypeScript passed. Current entry: `index-BbqkeLNr.js`; V2 seller: `Seller-CIR66BK9.js`. The unchanged lazy V1 AG Grid chunk retains its size warning.
+Goods/roles are fictional and funds are test funds. A reused payer does not prove independent identities. No production payments, customer pilot, proven ROI, escrow, atomic settlement, buyer discovery, shipping or physical handover is claimed. [Willingness to pay and actual AI cost per completed lot remain unmeasured](business.md).
 
-Actual NVIDIA/Nebius checks: the exact jury input selected Corded drill + Extension reel at 190 PLN without forbidding Hand tools or Box of clamps. A separate explicit refusal retained both 10/11 with source quotes. A buyer correction was checked in persisted preferences. The bounded agent again produced Jan's checked 190 PLN question; accepting it remained distinct from purchase consent, and the seller then saw a complete plan. Early development probes exposed an over-strict quote filter; the final grounding corrected that, with both final regression inputs repeated successfully. These probes do not establish a general parsing accuracy rate.
+One configured seller/workspace supports1–24 positions,2–6 buyers and two complete basket options each. Sign-in links display locally; no email ownership is verified or mail sent. Sandbox history cannot be reset to replay; use isolated persistent workspaces. Guide/resettable synthetic scenarios are rehearsal-only.
 
-Fresh actual PayPal Sandbox run: a separate own two-item lot used a 140 PLN AI-reviewed basket and a 50 PLN manually reviewed basket. Exact consents were initially unchecked. Authorisation stayed disabled with one missing consent. A collection attempt with only one of two real holds returned HTTP 409/GATE_CLOSED and created zero capture operations. Two real test-payer approvals returned normally; the seller collected 140 + 50 = **190 PLN**. Independent PayPal GETs confirmed both captures COMPLETED with the exact amounts/currency. Physical preparation unlocked, but both actual-fixture baskets remained not prepared. One existing Sandbox payer served two logical buyer sessions; all amounts are test funds.
+Checks cover exercised desktop/mobile-emulated views, not all browsers or a physical phone. No PWA/camera-permission workflow is offered. A lazily isolated legacy V1 AG Grid chunk emits a size warning; current V2 does not load that interface. No Render Workflows or unused sponsor integration is claimed.
 
-UI regression coverage included unknown result → existing-operation check → partial failure → pending compensation → confirmed compensation; selective repair; explicit incomplete recheck; expiry; withdrawal and return home; simulated capture and partial/full physical checklists. Desktop catalogue 1536 px and mobile 390 px were inspected; the actual Sandbox payment view used the existing 1280 px viewport. The exercised layouts had no document overflow or framework overlay, and the app-only rehearsal console had no warnings/errors. Public-provider failure injection/refund was not repeated in this delta; its earlier actual evidence remains in the initial V2 section below. Vision was not rerun. Existing assets, providers, original ledgers and publication plans were retained.
-
-Private screenshots, provider readbacks and regression traces are retained outside public source.
-
-## Initial V2 implementation evidence — preserved historical scope
-
-The accepted V2 concept and views are implemented locally. This report supersedes V1's current-status claims; [the earlier record](history/verification-through-2026-10-30.md) is preserved unchanged as historical evidence. The new working tree has not been pushed or submitted. Hosting/publication remain deferred to the agreed handoff.
-
-## Source and browser checks
-
-| Check | Result and boundary |
-| --- | --- |
-| TypeScript | Client and server typecheck passed. |
-| Production build | Passed. Initial V2 entry `index-HM0xJUQ_.js`; V2 seller `Seller-DUckxoMx.js`. V1's lazy AG Grid chunk retains a size warning; V2 does not request it. |
-| Automated tests | 115/115 passed, zero failures/skips/cancellations, after the production build. Provider-transport tests use mocks and are separate from real provider results below. |
-| Own inventory | Browser-created empty own lot, protected photo upload, actual vision returned eight unconfirmed suggestions and accepted zero automatically. Human selected two, priced 200/100 PLN, confirmed catalogue, edited buyers to Alice/Robin, saved two separate whole baskets, approved exact terms and completed a 300 PLN simulated purchase. Preparation required a separate item check/action. No actual goods were prepared. |
-| Different examples | Office 15/4/3140 PLN, garage 9/3/1035 PLN and café 18/5/3550 PLN each rendered a complete unequal-basket plan in the browser. Full simulated purchases for all three also passed domain tests. Workshop 12/4/1800 PLN is the separate live Sandbox fixture. |
-| Recovery UI | Browser reviewed incomplete, expiry, pending compensation, completed compensation, unknown capture and selective repair. Interrupted-hold fixture resumed the existing order; unit test confirms unchanged operation/key and no second order. |
-| Production smoke | Compiled build on 4319 completed a simulated purchase; reload and a full server restart preserved paid state and the logged-in session. The canonical SQLite state was byte-identical across that restart. Clean application console had no warnings/errors before deliberate network fault injection. Blocking the state GET retained readable paid/preparation content and showed a friendly connection warning; unblocking recovered and cleared it. No financial POST was retried by that check. |
-| Responsive scope | Selected entry/catalogue/basket/consent/repair/payment/refund/pickup surfaces checked at 390 px mobile and 1536 px desktop. No document-level overflow in exercised layouts. Catalogue tables intentionally have their own horizontal continuation. This is not a claim of exhaustive device/browser coverage. |
-
-## Actual Nebius AI
-
-- Vision processed the actual photographic fixture and an authenticated own-upload image through `nvidia/Nemotron-3.5-Super-VL`. The source photo hash was retained, proposals remained unconfirmed and catalogue prices were set by a person. The prepared canonical 12-item catalogue was not generated by one vision call.
-- Text preferences processed Nina's workbench-plus-clamps request with the existing NVIDIA text model, yielding a 480 PLN proposal that she separately saved.
-- The actual bounded agent used `nvidia/nemotron-3-super-120b-a12b`, reading catalogue/conditions and calling plan, candidate and comparison checks before proposing Jan's 190 PLN alternative. Six rounds completed. The seller sent the question; Jan explicitly accepted the option. This did not create purchase consent or payment authority.
-- Initial live model attempts exposed premature tool selection and reasoning-token truncation. Allowed-action gates and the model's thinking setting were corrected before the successful run. Provider errors do not become sample successes. No new API account or provider was introduced.
-
-## Actual PayPal Sandbox — purchase and selective repair
-
-A new isolated V2 ledger was used; historical V1 ledgers were not migrated or reused.
-
-1. Four logical buyers gave exact unchecked purchase consent through the app and genuinely approved PayPal Sandbox holds of 380/190/720/510 PLN in the browser. All normal callbacks completed cleanly. With only three holds, collection returned `GATE_CLOSED`, with zero captures and preparation blocked.
-2. Lena explicitly withdrew. Her 720 PLN hold and Jan's changed 190 PLN hold were voided; independent PayPal reads confirmed `VOIDED`. Nina joined through her own invitation, confirmed a 480 PLN basket, and Jan confirmed the 430 PLN complete option.
-3. Plan 2 kept Marta's 380 PLN and Oskar's 510 PLN exact V2 consent, original authorization operation and provider IDs. Changed/new buyers gave new exact consent and authorizations. The comparison was checked against stored operation IDs, digests and independent provider reads.
-4. One seller collection action produced four actual Sandbox captures of **380 + 430 + 480 + 510 = 1800 PLN**. Independent PayPal GETs returned `COMPLETED` for all four. The app showed all payments confirmed; preparation unlocked but all actual-fixture baskets remained not prepared.
-
-The initial fixture's fictional pickup time was entered overnight. New/default fixtures use the displayed daytime 10:00–12:00 CET slot. Financial terms of the completed fixture were not rewritten to improve screenshots.
-
-## Actual controlled failure, unknown result and compensation
-
-A different isolated Sandbox ledger tested a deliberate failure; the successful purchase above was untouched.
-
-- Four real test holds were approved. The test deliberately voided Jan's 190 PLN authorization outside the app, creating a genuine subsequent PayPal capture failure.
-- The first 380 PLN capture genuinely completed at PayPal. A private QA transport wrapper deliberately discarded its response after provider success. The app stored `UNKNOWN`, started no later capture, and blocked preparation.
-- **Check existing payment** found the same provider capture through reads. The local operation, saved key and provider capture ID matched the original receipt; the persisted capture command had **one dispatch attempt**. No capture POST replay occurred.
-- Continuing then encountered Jan's actual `AUTHORIZATION_VOIDED` failure. Later captures never started. The app refunded the confirmed 380 PLN capture and canceled remaining holds.
-- PayPal's `PREVIOUSLY_VOIDED` corner initially remained an honest failed cancellation. The adapter was corrected to read the exact authorization and accept only `VOIDED`, with tests for contradictory and failed reads. One explicit guarded UI retry after this fix settled Jan's already-voided hold. This branch is not described as a clean zero-retry initial run.
-- Final independent reads confirmed the **380 PLN refund COMPLETED** and **1420 PLN of holds VOIDED**. Pickup stayed blocked. The buyer's Refund confirmed view was verified in the browser. Real bank-pending timing was not reproduced; pending refund/cancellation views were tested in rehearsal/domain fixtures.
-
-## Design fidelity and user stories
-
-Reference: accepted `outputs/LOTSPLIT/14-design-v2/manifest-final.json`, 28 chosen PNGs / 18 stories. The story map is `docs/design-v2.md`.
-
-| Comparison | Verified treatment |
-| --- | --- |
-| Copy and numbers | Accepted task headings/actions and canonical 1800 PLN plan data retained. Runtime dates/names/counts come from state. Simulated and Sandbox states have distinct visible labels. |
-| Composition | Open rows/tables, thin dividers, one dominant action, buyer-focused narrow views and wider seller workspace. Changed Jan/Nina rows highlighted; unchanged Marta/Oskar commitments shown separately. |
-| Typography | Inter with explicit heading/body/control sizes and consistent hierarchy; responsive CSS normalizes the reference bitmap's sizing to usable browser text. |
-| Palette | White, ink #1D2823, forest #244B3B, muted #727A75 and divider #E4E9E5. Semantic amber/green states use icon plus text. |
-| Imagery | Photographic workshop/office/garage/café media and separate item assets. No reference screenshot is used as interactive UI. Own uploads and bounded photo regions are supported; image aspect ratios are preserved. |
-| Spacing and controls | 24 px side gutters, restrained radii, separated sections and main buttons at least 48 px high. Purchase consent is initially unchecked and tied to exact current terms. |
-| Live behavior | Options, exact consent, hold, capture, compensation and preparation remain distinct. Unknown/pending does not show success. Extra mode labels and Demo controls explain actual runtime behavior. |
-
-Selected renders were inspected against accepted entry and repair references. Stable DevTools screenshots supersede earlier transient capture artifacts produced while viewport emulation changed. The actual DOM bounds and stable frames agreed; no application layout workaround was added for the capture artifact.
-
-## Limits and handoff
-
-These are test funds and fictional goods. One existing Sandbox payer account served multiple logical buyer sessions; this is not proof of four independent payer identities. No Live payment, real customer, ROI, escrow, atomic settlement or physical handover is claimed. Signed webhook handling is unit-tested; live public webhook delivery was not verified on localhost.
-
-The prototype has one configured seller/workspace, 2–6 buyers, up to 24 catalogue positions and two complete basket options each. Invitations display a one-use link locally and do not send or verify email. A Sandbox workspace with financial history cannot be erased/recycled from the UI; use separate persistent workspaces for separate demonstration purchases. Local fresh ledgers are not the archived financial-proof ledgers.
-
-QA processes on 4322–4324 and old task-local helpers are stopped. Compiled user-facing runtimes remain on 4319 (rehearsal) and 4320 (fresh Sandbox). Secret files, session/invitation values and provider receipts remain private. Selected non-secret screenshots and summary evidence are saved under `outputs/LOTSPLIT/15-implementation-v2`.
-
-The public repository/video still represent V1. Refresh source, film, judge access, rules check and final submission at the agreed publication stage; none were published or charged for by this work. No new jury score is claimed.
-
-Current [mobile entry](screenshots/entry-mobile.png), [repair](screenshots/repair-desktop.png) and [Sandbox result](screenshots/sandbox-paid-desktop.png). Private provider receipts are not committed.
+Current [mobile entry](screenshots/entry-mobile.png), [selective repair](screenshots/repair-desktop.png) and [historical Sandbox result](screenshots/sandbox-paid-desktop.png). Private IDs, invitations, sessions, payer details and provider receipts stay outside public source.

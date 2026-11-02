@@ -75,9 +75,13 @@ V2 uses `lotsplit-v2-rehearsal.sqlite` / `lotsplit-v2-sandbox.sqlite`. Historica
 
 ## Hosted review
 
+[Public product page](https://lotsplit.onrender.com/about) · [Optional guided demo](https://lotsplit-demo.onrender.com/?guide=1) · [Submitted PayPal entry](https://devpost.com/software/lotsplit)
+
 [Replayable hosted demo](https://lotsplit-demo.onrender.com): real AI and visibly simulated payments; its free instance can take 50+ seconds to wake. [Actual PayPal Sandbox](https://lotsplit.onrender.com): test money, separate buyer approvals and persistent financial history. Private browser logins, invitations and a test payer are supplied in the Devpost judging field; no API keys are public. The access gate uses a signed HttpOnly session so the browser can return from PayPal without forwarding an Authorization header. It does not grant a buyer/seller role or purchase consent.
 
-See [judge access](docs/judge-access.md), [accepted design and stories](docs/design-v2.md), [current verification](docs/verification.md) and [historical verification](docs/history/verification-through-2026-10-30.md). The [final English film](https://youtu.be/gUwv5R6rCww) shows this V2 flow. See [publication checklist](docs/submission-checklist.md) for the release and judging-access status; a video publication alone is not contest submission.
+The optional guide observes application state and supports skip, close and restart. Explicit start replaces only shared disposable rehearsal data; prepared consents and holds are disclosed. The guide never approves or captures actual Sandbox funds.
+
+See [judge access](docs/judge-access.md), [accepted design and stories](docs/design-v2.md), [current verification](docs/verification.md), [business assumptions](docs/business.md) and [historical verification](docs/history/verification-through-2026-10-30.md). The [final English film](https://youtu.be/gUwv5R6rCww) shows this V2 flow. The entry is [accepted on Devpost](docs/submission-receipt.md); the [publication checklist](docs/submission-checklist.md) records the release and judging-access status.
 
 ## Verification
 
@@ -87,6 +91,6 @@ npm run build
 npm test
 ```
 
-The current V2 build passed 125 tests, full typecheck and production build on 1 November 2026, including the private judging-session return checks. Source-grounded exclusions remain editable before saving; the catalogue advances through individual confirmations, and the assistant avoids inventing a conflict when a complete plan exists. Separately, actual Nebius requests, genuine browser Sandbox approvals, preserved holds, four captures totaling 1,800 PLN and an isolated 380 PLN refund / 1,420 PLN hold cancellation flow were verified. Transport loss was deliberately injected into the isolated failure test; real PayPal GETs confirmed the resulting resources. One test payer served multiple logical buyers. These are test funds, fictional inventory and separately verified local/hosted integration evidence, not real buyers, production readiness or completed physical pickup.
+The current V2 build passed 217 tests, full typecheck and production build on 2 November 2026, including the private judging-session return checks. Source-grounded exclusions remain editable before saving; the catalogue advances through individual confirmations, and the assistant avoids inventing a conflict when a complete plan exists. Separately, actual Nebius requests, genuine browser Sandbox approvals, preserved holds, four captures totaling 1,800 PLN and an isolated 380 PLN refund / 1,420 PLN hold cancellation flow were verified. Transport loss was deliberately injected into the isolated failure test; real PayPal GETs confirmed the resulting resources. One test payer served multiple logical buyers. These are test funds, fictional inventory and separately verified local/hosted integration evidence, not real buyers, production readiness or completed physical pickup.
 
 React 19, Vite 8, TypeScript, Express 5 and Node 24 SQLite run in one process. The older V1 UI remains an isolated legacy path; its AG Grid chunk is lazy and is not requested by V2. Generated media provenance is recorded in `docs/v2-assets.json`; assets are distinct from the accepted design reference images.

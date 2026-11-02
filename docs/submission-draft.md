@@ -36,7 +36,7 @@ React, TypeScript and Vite provide the English mobile-first interface. Express a
 
 ## What we verified
 
-The current source passes 125 automated tests, client/server type checks and a production build, including a clean installation. Browser checks covered uploaded inventory, different catalogue sizes, correction of AI exclusions, private limits, exact consent, selective plan repair, incomplete allocations, expiry and preparation.
+The current source passes 217 automated tests, client/server type checks and a production build, including a clean installation. Browser checks covered uploaded inventory, different catalogue sizes, correction of AI exclusions, private limits, exact consent, selective plan repair, incomplete allocations, expiry and preparation.
 
 The final film follows a real Sandbox run repaired from Plan 1 to Plan 2. Marta keeps her PLN 380 basket and Oskar keeps PLN 510. Jan approves PLN 430 and Nina PLN 480. Four provider-confirmed captures total PLN 1,800 for twelve positions.
 

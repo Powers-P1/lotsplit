@@ -1,7 +1,7 @@
-# Publication checklist — 1 November 2026
+# Publication checklist — 2 November 2026
 
 - [x] Accepted V2 interface and bounded user stories; English default.
-- [x] Current source published; 125 tests, full typecheck and production build passed.
+- [ ] Candidate awaits manual publication/deployment; 217 tests, full typecheck and production build passed.
 - [x] Final film public on damkar92 / @ThePowersP1: https://youtu.be/gUwv5R6rCww; English captions, AI disclosure, music coverage and YouTube copyright check verified.
 - [x] Actual Render Sandbox with persistent 1 GB disk; separate free replay instance with actual AI and explicit payment simulation.
 - [x] Hosted AI, genuine test-payer approvals, selective repair, cancellations and four provider-confirmed PLN 1,800 captures verified.

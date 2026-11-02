@@ -1,0 +1,53 @@
+{
+  "date": "2026-11-01",
+  "assets": [
+    {
+      "file": "public/site/workshop-1280.webp",
+      "source": "public/assets/v2/hero.png",
+      "description": "Responsive WebP encoding of existing fictional ImageGen inventory",
+      "sha256": "dea0d566dc51b04ccc06f37e6b452d9cadd7b16e8734e7dcf124bbccc0bee1f4",
+      "sourceSha256": "639dfe6566ea3829e73f91ae5e1acf8b5bd6a3fbd29c79dada97cb1166869f47",
+      "bytes": 114214
+    },
+    {
+      "file": "public/site/workshop-640.webp",
+      "source": "public/assets/v2/hero.png",
+      "description": "Responsive WebP encoding of existing fictional ImageGen inventory",
+      "sha256": "6bb4f6dd91f5f336bb70aad2ee7b18a02c322cef7a217ec21fdf554b085dd2a9",
+      "sourceSha256": "639dfe6566ea3829e73f91ae5e1acf8b5bd6a3fbd29c79dada97cb1166869f47",
+      "bytes": 42396
+    },
+    {
+      "file": "public/site/repair.webp",
+      "source": "docs/screenshots/repair-desktop.png",
+      "description": "Lossless WebP encoding of actual application screenshot",
+      "sha256": "c194b1affb454de351373cc77935fb1d2bab6aaa59d8d4cff81e02552074a350",
+      "sourceSha256": "eed4e676024d113976de3db548264b5c3d381993499b4155fe72b4d96ad3a647",
+      "bytes": 46434
+    },
+    {
+      "file": "public/site/inter-400.woff2",
+      "source": "node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2",
+      "description": "Inter; SIL Open Font License in public/site/FONT-LICENSE.txt",
+      "sha256": "8909904ab6c872eb994093482a88a28eca2cd95912d7b6fecd72103b0dc07edc",
+      "sourceSha256": "8909904ab6c872eb994093482a88a28eca2cd95912d7b6fecd72103b0dc07edc",
+      "bytes": 23664
+    },
+    {
+      "file": "public/site/inter-600.woff2",
+      "source": "node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2",
+      "description": "Inter; SIL Open Font License in public/site/FONT-LICENSE.txt",
+      "sha256": "f9a06e79cd3a2a20951c0f0e28f66dd0e6d3fda73911d640a2125c8fcb78f21a",
+      "sourceSha256": "f9a06e79cd3a2a20951c0f0e28f66dd0e6d3fda73911d640a2125c8fcb78f21a",
+      "bytes": 24452
+    },
+    {
+      "file": "public/site/inter-700.woff2",
+      "source": "node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2",
+      "description": "Inter; SIL Open Font License in public/site/FONT-LICENSE.txt",
+      "sha256": "6f56409fd3d64bb85f7d070bce20749db2d66b6d63cec586cc22d1c761be2491",
+      "sourceSha256": "6f56409fd3d64bb85f7d070bce20749db2d66b6d63cec586cc22d1c761be2491",
+      "bytes": 24356
+    }
+  ]
+}
